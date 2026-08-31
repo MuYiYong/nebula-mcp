@@ -168,17 +168,17 @@ def test_checksums_are_sorted_and_release_notes_use_exact_asset_url(tmp_path: Pa
 
 
 def test_cli_prepares_only_exact_current_build_assets(tmp_path: Path) -> None:
-    wheel = tmp_path / "nebula_mcp-0.1.3-py3-none-any.whl"
-    sdist = tmp_path / "nebula_mcp-0.1.3.tar.gz"
+    wheel = tmp_path / "nebula_mcp-0.1.4-py3-none-any.whl"
+    sdist = tmp_path / "nebula_mcp-0.1.4.tar.gz"
     wheel.write_bytes(b"wheel")
-    write_test_sdist(sdist, "nebula_mcp-0.1.3/src/nebula_mcp/__init__.py")
+    write_test_sdist(sdist, "nebula_mcp-0.1.4/src/nebula_mcp/__init__.py")
 
     result = prepare_release.main(
         [
             "--repository",
             "local-validation/nebula-mcp",
             "--tag",
-            "v0.1.3",
+            "v0.1.4",
             "--dist",
             str(tmp_path),
         ]
@@ -195,17 +195,17 @@ def test_cli_prepares_only_exact_current_build_assets(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "member",
     [
-        "nebula_mcp-0.1.3/findings.md",
-        "nebula_mcp-0.1.3/progress.md",
-        "nebula_mcp-0.1.3/task_plan.md",
-        "nebula_mcp-0.1.3/docs/superpowers/plan.md",
+        "nebula_mcp-0.1.4/findings.md",
+        "nebula_mcp-0.1.4/progress.md",
+        "nebula_mcp-0.1.4/task_plan.md",
+        "nebula_mcp-0.1.4/docs/superpowers/plan.md",
     ],
 )
 def test_cli_rejects_sdist_with_private_planning_evidence(
     tmp_path: Path, member: str
 ) -> None:
-    (tmp_path / "nebula_mcp-0.1.3-py3-none-any.whl").write_bytes(b"wheel")
-    write_test_sdist(tmp_path / "nebula_mcp-0.1.3.tar.gz", member)
+    (tmp_path / "nebula_mcp-0.1.4-py3-none-any.whl").write_bytes(b"wheel")
+    write_test_sdist(tmp_path / "nebula_mcp-0.1.4.tar.gz", member)
 
     with pytest.raises(ValueError, match="private planning evidence"):
         prepare_release.main(
@@ -213,7 +213,7 @@ def test_cli_rejects_sdist_with_private_planning_evidence(
                 "--repository",
                 "local-validation/nebula-mcp",
                 "--tag",
-                "v0.1.3",
+                "v0.1.4",
                 "--dist",
                 str(tmp_path),
             ]
@@ -221,8 +221,8 @@ def test_cli_rejects_sdist_with_private_planning_evidence(
 
 
 def test_cli_rejects_old_or_extra_distribution_assets(tmp_path: Path) -> None:
-    (tmp_path / "nebula_mcp-0.1.3-py3-none-any.whl").write_bytes(b"wheel")
-    (tmp_path / "nebula_mcp-0.1.3.tar.gz").write_bytes(b"sdist")
+    (tmp_path / "nebula_mcp-0.1.4-py3-none-any.whl").write_bytes(b"wheel")
+    (tmp_path / "nebula_mcp-0.1.4.tar.gz").write_bytes(b"sdist")
     (tmp_path / "nebula_mcp-0.1.2-py3-none-any.whl").write_bytes(b"old wheel")
 
     with pytest.raises(ValueError, match="exactly one wheel and one sdist"):
@@ -231,7 +231,7 @@ def test_cli_rejects_old_or_extra_distribution_assets(tmp_path: Path) -> None:
                 "--repository",
                 "local-validation/nebula-mcp",
                 "--tag",
-                "v0.1.3",
+                "v0.1.4",
                 "--dist",
                 str(tmp_path),
             ]

@@ -92,6 +92,35 @@ async def test_server_exposes_complete_prefixed_tool_set(service: NebulaService)
 
 
 @pytest.mark.anyio
+async def test_query_presentation_contract_is_delivered_to_mcp_clients(
+    service: NebulaService,
+) -> None:
+    server = create_server(service=service)
+
+    async with Client(server) as client:
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        instructions = client.instructions or ""
+
+    query_tool = tools["nebula_execute_query"]
+    normalized_instructions = " ".join(instructions.split())
+    assert "present every enabled result component together" in normalized_instructions
+    assert "render every non-empty vega-lite-v5 chart" in normalized_instructions
+    assert "write a human-readable explanation" in normalized_instructions
+
+    description = query_tool.description or ""
+    assert "A table does not replace charts or the explanation" in description
+
+    input_properties = query_tool.input_schema["properties"]
+    for name in ("include_graph", "include_analysis", "include_charts"):
+        assert input_properties[name]["default"] is True
+        assert input_properties[name]["type"] == "boolean"
+
+    output_properties = query_tool.output_schema["properties"]
+    assert "render" in output_properties["charts"]["description"].lower()
+    assert "human-readable explanation" in output_properties["explanation_context"]["description"]
+
+
+@pytest.mark.anyio
 async def test_successful_tool_returns_valid_structured_content(service: NebulaService) -> None:
     server = create_server(service=service)
 
@@ -101,6 +130,12 @@ async def test_successful_tool_returns_valid_structured_content(service: NebulaS
     assert result.is_error is False
     assert result.structured_content["status"]["ok"] is True
     assert result.structured_content["graph"]["format"] == "cytoscape-elements-v1"
+    assert result.structured_content["graph"]["elements"]["nodes"] == []
+    assert result.structured_content["charts"][0]["format"] == "vega-lite-v5"
+    assert result.structured_content["explanation_context"]["facts"] == [
+        "Returned 1 row(s).",
+        "Extracted 0 node(s) and 0 edge(s).",
+    ]
 
 
 @pytest.mark.anyio

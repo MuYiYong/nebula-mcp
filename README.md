@@ -62,7 +62,7 @@ Windows PowerShell 的升级与卸载分别运行 `py -3 install.py` 和 `py -3 
 4. 调用 `nebula_validate_gql` 做静态校验，排除占位符、Cypher/nGQL 残留、多语句和安全策略问题。
 5. 对需要数据库计划证据的候选语句设置 `run_explain=true`。EXPLAIN 只检查候选计划，不执行原查询。
 6. 向用户展示候选 GQL 和证据边界，确认后调用 `nebula_execute_query`。
-7. Codex 根据返回的事实、图/图表规格和 caveats 生成人工解释。
+7. Codex 同时消费所有已启用的结果组成：图元素非空时呈现图，`charts` 非空时呈现每个图表，并始终根据 `explanation_context` 生成人工解释。表格不能替代图表或解释。
 
 证据必须分开标记：
 
@@ -100,6 +100,7 @@ Windows PowerShell 的升级与卸载分别运行 `py -3 install.py` 和 `py -3 
 - 达到行数、字节、节点或边上限时，`truncation.reasons` 明确记录原因，统计不会被描述为完整总体。
 
 调用方可用 `include_graph`、`include_analysis` 和 `include_charts` 控制是否生成相应内容；当前 `render_mode` 只支持 `spec`，不把 PNG 当作唯一结果。
+三个 include 开关均默认开启且相互独立。图中没有节点/边时可以不呈现图；但非空 `charts` 应呈现为图表，成功查询应同时附上基于 `explanation_context` 的人工解释。
 
 ## 开发与本地验证
 

@@ -387,10 +387,28 @@ class QueryOutput(BaseModel):
     status: QueryStatus
     query: QueryMetadata
     table: TableResult
-    graph: GraphSpec | None = None
-    analysis: Analysis | None = None
-    charts: list[ChartSpec] = Field(default_factory=list)
-    explanation_context: ExplanationContext
+    graph: GraphSpec | None = Field(
+        None,
+        description=(
+            "Render this Cytoscape graph when enabled and its elements contain nodes or edges."
+        ),
+    )
+    analysis: Analysis | None = Field(
+        None,
+        description="Deterministic facts about the bounded returned rows when enabled.",
+    )
+    charts: list[ChartSpec] = Field(
+        default_factory=list,
+        description=(
+            "Render every Vega-Lite chart in this list when charts are enabled and the list "
+            "is non-empty; a table is not a chart replacement."
+        ),
+    )
+    explanation_context: ExplanationContext = Field(
+        description=(
+            "Use this evidence to write a human-readable explanation for every successful query."
+        )
+    )
     truncation: TruncationInfo
 
 

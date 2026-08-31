@@ -51,7 +51,11 @@ discover schema, use gql-query-generator, validate the candidate, show it for re
 The server never invokes a model and never converts another dialect by itself.
 Queries are read-only by default. Mutations require the server switch and per-call confirmation.
 Graph and chart results are portable cytoscape-elements-v1 and vega-lite-v5 specifications;
-use explanation_context as evidence for a human-readable explanation.
+the graph, analysis, and chart components are independently configurable and default to enabled.
+After a successful query, present every enabled result component together: render a graph only
+when it contains nodes or edges, render every non-empty vega-lite-v5 chart, and write a
+human-readable explanation from explanation_context. A table does not replace charts or the
+explanation. Never invent a missing graph, chart, or fact.
 """
 
 
@@ -116,7 +120,7 @@ def create_server(
         title="YueShu 5.3 MCP",
         description="Local, spec-first access to a remote YueShu graph database",
         instructions=INSTRUCTIONS,
-        version="0.1.3",
+        version="0.1.4",
         log_level=settings.log_level if settings is not None else "INFO",
         lifespan=lifespan,
     )
@@ -183,8 +187,11 @@ def create_server(
     @server.tool(
         name="nebula_execute_query",
         description=(
-            "Execute one approved read-only GQL statement and optionally return table, "
-            "cytoscape-elements-v1 graph, deterministic analysis, and vega-lite-v5 charts."
+            "Execute one approved read-only GQL statement. Graph, analysis, and charts are "
+            "independently configurable and default to enabled. Present all enabled results "
+            "together: render a non-empty cytoscape-elements-v1 graph, render every non-empty "
+            "vega-lite-v5 chart, and write a human-readable explanation from "
+            "explanation_context. A table does not replace charts or the explanation."
         ),
         annotations=READ_ONLY,
     )

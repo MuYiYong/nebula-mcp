@@ -108,6 +108,29 @@ async def test_query_builds_requested_specs_and_factual_context(settings: Settin
 
 
 @pytest.mark.anyio
+async def test_query_result_components_remain_individually_configurable(
+    settings: Settings,
+) -> None:
+    rows = [{"sector": "A", "score": 1.0}, {"sector": "B", "score": 2.0}]
+    gateway = FakeGateway([FakeResult(rows)])
+    service = NebulaService(settings, gateway)
+
+    output = await service.execute_query(
+        QueryInput(
+            statement="RETURN 'A' AS sector, 1.0 AS score",
+            include_graph=False,
+            include_analysis=False,
+            include_charts=False,
+        )
+    )
+
+    assert output.graph is None
+    assert output.analysis is None
+    assert output.charts == []
+    assert output.explanation_context.validation_evidence.executed is True
+
+
+@pytest.mark.anyio
 async def test_graph_input_conflicts_with_explicit_use(settings: Settings) -> None:
     gateway = FakeGateway()
     service = NebulaService(settings, gateway)

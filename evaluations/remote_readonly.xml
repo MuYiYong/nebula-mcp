@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<evaluation name="nebula-mcp-remote-readonly" schema="default_schema" graph_type="cypher_compat_381_type">
+  <qa_pair id="schema-01" fact_key="graph_type">
+    <question>目标固定 Graph Type 的名称是什么？</question>
+    <expected_answer>cypher_compat_381_type</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-02" fact_key="node_type_count">
+    <question>该 Graph Type 声明了多少个 Node Type？</question>
+    <expected_answer>1</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-03" fact_key="node_type">
+    <question>唯一 Node Type 的类型名是什么？</question>
+    <expected_answer>Corp</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-04" fact_key="node_label">
+    <question>Corp Node Type 的标签是什么？</question>
+    <expected_answer>Corporation</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-05" fact_key="node_primary_key">
+    <question>Corp Node Type 的主键属性是什么？</question>
+    <expected_answer>eid</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-06" fact_key="node_property_count">
+    <question>Corp Node Type 声明了多少个属性？</question>
+    <expected_answer>2</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-07" fact_key="edge_type_count">
+    <question>该 Graph Type 声明了多少个 Edge Type？</question>
+    <expected_answer>3</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-08" fact_key="invest_label">
+    <question>Invest Edge Type 的标签是什么？</question>
+    <expected_answer>INVEST</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-09" fact_key="cooperate_label">
+    <question>Cooperate Edge Type 的标签是什么？</question>
+    <expected_answer>COOPERATE</expected_answer>
+  </qa_pair>
+  <qa_pair id="schema-10" fact_key="supply_key_mode">
+    <question>Supply Edge Type 的 multiedge key 模式是什么？</question>
+    <expected_answer>Unique</expected_answer>
+  </qa_pair>
+</evaluation>

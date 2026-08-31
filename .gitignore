@@ -1,0 +1,17 @@
+.coverage
+.env
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Local planning and audit evidence is not part of the public project.
+/findings.md
+/progress.md
+/task_plan.md
+/docs/superpowers/

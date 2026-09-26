@@ -11,12 +11,9 @@ from nebula_mcp.analysis import analyze_rows
 from nebula_mcp.config import Settings
 from nebula_mcp.database import ResultLike
 from nebula_mcp.errors import NebulaMCPError
-from nebula_mcp.expansion import GRAPH_REFERENCE, build_expand_statement
 from nebula_mcp.models import (
     ConnectionOutput,
-    ExpandNodeInput,
     ExplanationContext,
-    GraphExpansionOutput,
     GraphListOutput,
     GraphSchemaEntity,
     GraphSchemaInput,
@@ -41,6 +38,9 @@ from nebula_mcp.result_parser import parse_result
 from nebula_mcp.serialization import JsonValue
 from nebula_mcp.specs import build_cytoscape_graph, build_vega_lite_specs
 
+_GRAPH_REFERENCE = re.compile(
+    r"(?:(?:/[A-Za-z_][A-Za-z0-9_]*)+|#[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)\Z"
+)
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _GRAPH_NAME = r"(?:`(?:``|[^`])+`|[A-Za-z_][A-Za-z0-9_]*)"
 _GRAPH_TOKEN = re.compile(rf"(?:#|/)?{_GRAPH_NAME}(?:/{_GRAPH_NAME})*(?:(?=/[/*])|(?![\w/`]))")
@@ -98,7 +98,7 @@ class NebulaService:
 
     async def select_graph(self, graph: str) -> GraphSelectionOutput:
         """Select a persistent graph and resume the last blocked read-only query."""
-        if GRAPH_REFERENCE.fullmatch(graph) is None or graph.startswith("#"):
+        if _GRAPH_REFERENCE.fullmatch(graph) is None or graph.startswith("#"):
             raise NebulaMCPError(
                 category="validation_error", message="Invalid persistent graph reference"
             )
@@ -336,33 +336,6 @@ class NebulaService:
         except NebulaMCPError:
             # Missing catalog privileges must not discard an otherwise valid query result.
             return {}
-
-    async def expand_node(self, request: ExpandNodeInput) -> GraphExpansionOutput:
-        row_limit = min(request.max_rows or self.settings.max_rows, self.settings.max_rows)
-        statement = build_expand_statement(request.graph, int(request.element_id), row_limit)
-        result = await self.execute_query(
-            QueryInput(
-                statement=statement,
-                graph=None,
-                max_rows=row_limit,
-                include_graph=True,
-                include_analysis=False,
-                include_charts=False,
-            )
-        )
-        if result.graph is None:
-            raise NebulaMCPError(
-                category="render_error",
-                message="Node expansion did not produce a graph result",
-                suggestion="Retry with a node returned by the original graph query",
-            )
-        return GraphExpansionOutput(
-            status=result.status,
-            query=result.query,
-            profile=result.profile,
-            graph=result.graph,
-            truncation=result.truncation,
-        )
 
     async def execute_mutation(self, request: MutationInput) -> MutationOutput:
         if not self.settings.allow_mutations:

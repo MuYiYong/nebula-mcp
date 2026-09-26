@@ -16,4 +16,4 @@ NEBULA_PASSWORD=PASSWORD \
 
 评测不得加入 mutation/DDL，也不应使用可变数据计数作为固定答案。如果目标 Graph Type 被有意修改，应先重新读取 Schema、人工复核问题，再更新期望值。
 
-4 个 `workflow_case` 分别覆盖：显式 GQL 标量、自然语言图结果、自然语言聚合和交互图后续一跳扩展。它们不作为 `_schema_facts()` 的固定答案循环输入，而是由文档契约测试校验完整性。
+4 个 `workflow_case` 分别覆盖：显式 GQL 标量、自然语言图结果、自然语言聚合和基于图结果的后续独立查询。它们不作为 `_schema_facts()` 的固定答案循环输入，而是由文档契约测试校验完整性。

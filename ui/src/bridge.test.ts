@@ -66,8 +66,8 @@ describe("MCP Apps bridge", () => {
     activeBridges.push(bridge);
 
     const pending = bridge.request("tools/call", {
-      name: "nebula_expand_node",
-      arguments: { graph: "demo", element_id: 1 },
+      name: "nebula_select_graph",
+      arguments: { graph: "demo" },
     });
     const sent = fake.postMessage.mock.calls[0]?.[0];
     let settled = false;
@@ -79,8 +79,8 @@ describe("MCP Apps bridge", () => {
       jsonrpc: "2.0",
       method: "tools/call",
       params: {
-        name: "nebula_expand_node",
-        arguments: { graph: "demo", element_id: 1 },
+        name: "nebula_select_graph",
+        arguments: { graph: "demo" },
       },
     });
     expect(sent.id).toBeTypeOf("number");

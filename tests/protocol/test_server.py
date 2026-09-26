@@ -184,7 +184,8 @@ async def test_query_presentation_contract_is_delivered_to_mcp_clients(
         "natural-language scalar request",
         "project Node, Edge, or Path",
         "Show GQL from query.display_statement",
-        "call nebula_render_graph only for a non-empty graph",
+        "nebula_render_graph is a legacy compatibility tool",
+        "do not call both for the same result",
     ):
         assert required.lower() in normalized_instructions.lower()
 

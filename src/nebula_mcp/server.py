@@ -90,9 +90,10 @@ Label statements GQL in prose and use untagged code fences. Never use gql or gra
 tags: the host can interpret these as GraphQL. The MCP App labels statements GQL.
 Automatic PROFILE is hidden from displayed/copied GQL; query.executed_statement records the wire
 statement and profile contains the plan. Do not run an extra query to obtain PROFILE.
-Use nebula_list_environments and nebula_switch_environment to switch configured environments.
-Call nebula_render_graph
-only for a non-empty graph. Never invent a missing graph, chart, or fact.
+Use nebula_list_environments and nebula_switch_environment only for named environments configured
+within this server. They do not switch independent MCP server registrations in the host.
+nebula_render_graph is a legacy compatibility tool; prefer nebula_render_result and do not call
+both for the same result. Never invent a missing graph, chart, or fact.
 """
 
 
@@ -211,8 +212,8 @@ def create_server(
         name="nebula_switch_environment",
         description=(
             "Switch to a preconfigured environment after testing its connection. Failure keeps "
-            "the existing session. Success resets selected graph and pending query; old graph "
-            "results cannot be expanded. Does not execute pending queries in the new environment."
+            "the existing session. Success resets selected graph and pending query. "
+            "Does not execute pending queries in the new environment or switch host MCP servers."
         ),
         annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
     )
@@ -389,7 +390,8 @@ def create_server(
     @server.tool(
         name="nebula_render_graph",
         description=(
-            "Render a non-empty query graph together with its table, charts, explanation, "
+            "Legacy compatibility entry; prefer nebula_render_result. Render a non-empty query "
+            "graph together with its table, charts, explanation, "
             "and exact executed GQL. Explain specific findings, their meaning and limitations; counts alone are insufficient."
         ),
         annotations=READ_ONLY,

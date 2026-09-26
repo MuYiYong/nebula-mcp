@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PolicyIssue(BaseModel):
@@ -276,28 +276,6 @@ class QueryInput(BaseModel):
     render_mode: Literal["spec"] = "spec"
 
 
-class ExpandNodeInput(BaseModel):
-    """Bounded inputs for fixed-shape one-hop graph expansion."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    graph: str = Field(min_length=1, max_length=512)
-    element_id: str = Field(
-        min_length=1,
-        max_length=20,
-        pattern=r"^(?:0|-?[1-9][0-9]*)$",
-    )
-    max_rows: int | None = Field(None, ge=1, le=10_000)
-
-    @field_validator("element_id")
-    @classmethod
-    def require_int64_range(cls, value: str) -> str:
-        parsed = int(value)
-        if parsed < -(2**63) or parsed > 2**63 - 1:
-            raise ValueError("element_id must be within the signed INT64 range")
-        return value
-
-
 class MutationInput(BaseModel):
     """Explicitly confirmed mutation execution request."""
 
@@ -488,18 +466,6 @@ class GraphPresentation(QueryPresentation):
         if graph is None or not (graph.elements.nodes or graph.elements.edges):
             raise ValueError("nebula_render_graph requires a non-empty graph")
         return self
-
-
-class GraphExpansionOutput(BaseModel):
-    """Bounded graph delta returned by one-hop expansion."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    status: QueryStatus
-    query: QueryMetadata
-    profile: ProfileOutput | None = None
-    graph: GraphSpec
-    truncation: TruncationInfo
 
 
 class MutationOutput(BaseModel):

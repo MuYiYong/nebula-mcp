@@ -9,7 +9,6 @@ from mcp import Client
 
 from nebula_mcp.errors import NebulaMCPError
 from nebula_mcp.models import (
-    ExpandNodeInput,
     GraphListOutput,
     GraphSchemaInput,
     GraphSummary,
@@ -121,37 +120,6 @@ async def test_remote_scalar_node_edge_and_path_shapes(remote_service: NebulaSer
     assert path.graph is not None and len(path.graph.paths) == 1
     assert path.graph.paths[0]["hop_count"] == 1
     assert path.graph.paths[0]["sdk_length"] == 2
-
-
-@pytest.mark.anyio
-async def test_remote_one_hop_expansion_uses_discovered_incident_node(
-    remote_service: NebulaService,
-) -> None:
-    _, reference, seed = await _discover_graph_with_edge(remote_service)
-    assert seed.graph is not None and seed.graph.elements.edges
-    source_id = seed.graph.elements.edges[0].data["source"]
-    source = next(
-        node.data for node in seed.graph.elements.nodes if node.data["id"] == source_id
-    )
-    element_id = source["element_id"]
-    assert isinstance(element_id, str)
-
-    expansion = await remote_service.expand_node(
-        ExpandNodeInput(graph=reference, element_id=element_id, max_rows=25)
-    )
-
-    expected = (
-        f"USE {reference}\n"
-        f"MATCH (source WHERE element_id(source) = {element_id})-[edge]-(neighbor)\n"
-        "RETURN source, edge, neighbor\n"
-        "LIMIT 25"
-    )
-    assert expansion.status.ok is True
-    assert expansion.query.read_only is True
-    assert expansion.query.statement == expected
-    assert expansion.query.executed_statement == expected
-    assert expansion.graph.elements.nodes
-    assert expansion.graph.elements.edges
 
 
 @pytest.mark.anyio

@@ -2,6 +2,9 @@
 
 ## 2026-09-26
 
+- Simplified the README around installation, configuration, usage, upgrade, and removal; moved advanced configuration and maintainer guidance to separate documents.
+- Removed unused one-hop expansion backend and frontend merge code, plus an obsolete design draft. Kept all 12 published tools, documenting optional environment tools and the legacy graph-rendering entry.
+
 - Query results include automatic PROFILE metrics while preserving the original GQL statement for display and copying.
 - Graph inspection shows schema-backed node primary keys, edge endpoints and direction, and explicit multiedge keys. Large integers retain precision in the browser.
 - Property values use compact rows; the copy icon confirms completion. Removed PROFILE JSON disclosure and one-hop expansion.

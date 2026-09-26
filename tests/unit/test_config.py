@@ -87,3 +87,19 @@ def test_load_settings_reports_invalid_pool_variables() -> None:
     assert settings is None
     assert problem is not None
     assert problem.variable_names == ("NEBULA_POOL_MAX_SIZE", "NEBULA_POOL_MIN_SIZE")
+
+
+def test_flat_connection_can_name_its_native_server_environment() -> None:
+    from nebula_mcp.config import load_environments
+
+    assert load_environments({**BASE_ENV, 'NEBULA_ENVIRONMENT': 'staging'}) == ({}, 'staging')
+    assert load_environments(BASE_ENV) == ({}, None)
+
+
+@pytest.mark.parametrize('name', ['', 'two words', 'x' * 65])
+def test_flat_environment_name_is_validated(name: str) -> None:
+    from nebula_mcp.config import load_environments
+    from nebula_mcp.errors import NebulaMCPError
+
+    with pytest.raises(NebulaMCPError):
+        load_environments({**BASE_ENV, 'NEBULA_ENVIRONMENT': name})

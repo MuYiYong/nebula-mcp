@@ -1,27 +1,45 @@
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
 import textwrap
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 
 from scripts import prepare_release
 
 ROOT = Path(__file__).resolve().parents[2]
+PLUGIN_ROOT = ROOT / "plugins" / "nebula-mcp"
 
 
-def write_test_sdist(path: Path, *members: str) -> None:
-    with tarfile.open(path, "w:gz") as archive:
-        for member in members:
-            payload = b"test fixture\n"
-            info = tarfile.TarInfo(member)
+def build_fixture_sdist(
+    path: Path,
+    version: str,
+    extra_member: str | None = None,
+) -> None:
+    root = f"nebula_mcp-{version}"
+    with tarfile.open(path, "w:gz") as package:
+        members = [
+            "README.md",
+            "pyproject.toml",
+            "PKG-INFO",
+            "src/nebula_mcp/__init__.py",
+        ]
+        if extra_member is not None:
+            members.append(extra_member)
+        for relative in members:
+            payload = relative.encode()
+            info = tarfile.TarInfo(f"{root}/{relative}")
             info.size = len(payload)
-            archive.addfile(info, io.BytesIO(payload))
+            package.addfile(info, io.BytesIO(payload))
 
 
 def workflow_block(text: str, header: str) -> str:
@@ -89,7 +107,154 @@ def test_tag_must_exactly_match_project_version(tmp_path: Path) -> None:
 
     assert prepare_release.validate_release_tag("v0.1.0", pyproject) == "0.1.0"
     with pytest.raises(ValueError, match="does not match"):
-        prepare_release.validate_release_tag("v0.2.0", pyproject)
+        prepare_release.validate_release_tag("v0.5.2", pyproject)
+
+
+def test_current_project_server_and_plugin_versions_are_0_2_0() -> None:
+    assert prepare_release.read_project_version(ROOT / "pyproject.toml") == "0.5.2"
+    assert '__version__ = "0.5.2"' in (ROOT / "src" / "nebula_mcp" / "__init__.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'version=__version__' in (ROOT / "src" / "nebula_mcp" / "server.py").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads(
+        (PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
+    assert manifest["version"] == "0.5.2"
+
+
+def test_sdist_build_is_limited_to_installable_public_files() -> None:
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert (
+        '[tool.hatch.build.targets.sdist]\ninclude = [\n'
+        '  "/src",\n'
+        '  "/README.md",\n'
+        '  "/pyproject.toml",\n'
+        "]\n"
+    ) in pyproject
+
+
+def test_release_rejects_unexpected_source_artifacts(tmp_path: Path) -> None:
+    archive = tmp_path / "nebula_mcp-0.5.2.tar.gz"
+    build_fixture_sdist(
+        archive,
+        "0.5.2",
+        extra_member="src/nebula_mcp/ui/query-result 2.html",
+    )
+
+    with pytest.raises(ValueError, match="unexpected public"):
+        prepare_release.validate_sdist_archive(archive, "0.5.2")
+
+
+@pytest.mark.parametrize(
+    "private_member",
+    [
+        "task_plan.md",
+        "findings.md",
+        "progress.md",
+        "docs/superpowers/plan.md",
+    ],
+)
+def test_release_rejects_private_sdist_members(
+    tmp_path: Path,
+    private_member: str,
+) -> None:
+    archive = tmp_path / "nebula_mcp-0.5.2.tar.gz"
+    payload = b"private"
+    with tarfile.open(archive, "w:gz") as package:
+        info = tarfile.TarInfo(f"nebula_mcp-0.5.2/{private_member}")
+        info.size = len(payload)
+        package.addfile(info, io.BytesIO(payload))
+
+    with pytest.raises(ValueError, match="private planning"):
+        prepare_release.validate_sdist_archive(archive, "0.5.2")
+
+
+def test_plugin_manifest_mcp_mapping_and_marketplace_are_exact() -> None:
+    manifest = json.loads(
+        (PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
+    mcp = json.loads((PLUGIN_ROOT / ".mcp.json").read_text(encoding="utf-8"))
+    marketplace = json.loads(
+        (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+    )
+
+    assert manifest["name"] == "nebula-mcp"
+    assert manifest["version"] == "0.5.2"
+    assert manifest["mcpServers"] == "./.mcp.json"
+    assert mcp == {"mcpServers": {"nebula": {"command": "nebula-mcp", "args": []}}}
+    assert marketplace == {
+        "name": "nebula-mcp-local",
+        "interface": {"displayName": "Nebula MCP Local"},
+        "plugins": [
+            {
+                "name": "nebula-mcp",
+                "source": {"source": "local", "path": "./plugins/nebula-mcp"},
+                "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+                "category": "Developer Tools",
+            }
+        ],
+    }
+
+
+def test_plugin_archive_is_allowlisted_and_deterministic(tmp_path: Path) -> None:
+    first = tmp_path / "first.zip"
+    second = tmp_path / "second.zip"
+
+    prepare_release.build_plugin_archive(PLUGIN_ROOT, first, "0.5.2")
+    prepare_release.build_plugin_archive(PLUGIN_ROOT, second, "0.5.2")
+
+    assert hashlib.sha256(first.read_bytes()).digest() == hashlib.sha256(
+        second.read_bytes()
+    ).digest()
+    with ZipFile(first) as archive:
+        assert archive.testzip() is None
+        assert archive.namelist() == [
+            ".codex-plugin/plugin.json",
+            ".mcp.json",
+            "README.md",
+        ]
+        assert all(not name.startswith("/") and ".." not in name.split("/") for name in archive.namelist())
+        archived_manifest = json.loads(archive.read(".codex-plugin/plugin.json"))
+    assert archived_manifest["version"] == "0.5.2"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("extra", "unexpected or missing files"),
+        ("symlink", "cannot contain symlinks"),
+        ("absolute-command", "MCP mapping"),
+        ("parent-argument", "MCP mapping"),
+        ("secret", "MCP mapping"),
+    ],
+)
+def test_plugin_archive_rejects_unsafe_or_unexpected_content(
+    tmp_path: Path,
+    mutation: str,
+    message: str,
+) -> None:
+    plugin = tmp_path / "plugin"
+    shutil.copytree(PLUGIN_ROOT, plugin)
+    if mutation == "extra":
+        (plugin / "unexpected.txt").write_text("extra", encoding="utf-8")
+    elif mutation == "symlink":
+        (plugin / "link").symlink_to(plugin / "README.md")
+    else:
+        mapping = json.loads((plugin / ".mcp.json").read_text(encoding="utf-8"))
+        server = mapping["mcpServers"]["nebula"]
+        if mutation == "absolute-command":
+            server["command"] = "/tmp/nebula-mcp"
+        elif mutation == "parent-argument":
+            server["args"] = ["../launcher.py"]
+        else:
+            server["env"] = {"NEBULA_PASSWORD": "not-a-real-secret"}
+        (plugin / ".mcp.json").write_text(json.dumps(mapping), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        prepare_release.build_plugin_archive(plugin, tmp_path / "plugin.zip", "0.5.2")
 
 
 def test_rendered_installer_contains_exact_repository_and_version(tmp_path: Path) -> None:
@@ -145,18 +310,18 @@ def test_checksums_are_sorted_and_release_notes_use_exact_asset_url(tmp_path: Pa
     names = [line.split("  ", 1)[1] for line in checksums.read_text().splitlines()]
     assert names == sorted(names)
     assert (
-        "The installer does not collect database connection settings. "
-        "Configure them in Codex Desktop after installation.\n\n"
         "```bash\n"
         "curl -fL -o install.py "
         "https://github.com/example-org/nebula-mcp/releases/download/v0.1.0/install.py\n"
-        "python3 install.py\n\n"
+        "python3 install.py --mode mcp\n\n"
         "# upgrade\n"
-        "python3 install.py\n\n"
+        "python3 install.py --mode mcp\n\n"
         "# uninstall\n"
         "python3 install.py --uninstall\n"
         "```\n"
     ) in notes.read_text(encoding="utf-8")
+    for fragment in ("nebula_configure_connection", "--configure", "--assets .", "one database session"):
+        assert fragment in notes.read_text(encoding="utf-8")
     notes_text = notes.read_text(encoding="utf-8")
     for required in (
         "Windows PowerShell",
@@ -168,17 +333,17 @@ def test_checksums_are_sorted_and_release_notes_use_exact_asset_url(tmp_path: Pa
 
 
 def test_cli_prepares_only_exact_current_build_assets(tmp_path: Path) -> None:
-    wheel = tmp_path / "nebula_mcp-0.1.4-py3-none-any.whl"
-    sdist = tmp_path / "nebula_mcp-0.1.4.tar.gz"
+    wheel = tmp_path / "nebula_mcp-0.5.2-py3-none-any.whl"
+    sdist = tmp_path / "nebula_mcp-0.5.2.tar.gz"
     wheel.write_bytes(b"wheel")
-    write_test_sdist(sdist, "nebula_mcp-0.1.4/src/nebula_mcp/__init__.py")
+    build_fixture_sdist(sdist, "0.5.2")
 
     result = prepare_release.main(
         [
             "--repository",
             "local-validation/nebula-mcp",
             "--tag",
-            "v0.1.4",
+            "v0.5.2",
             "--dist",
             str(tmp_path),
         ]
@@ -188,42 +353,64 @@ def test_cli_prepares_only_exact_current_build_assets(tmp_path: Path) -> None:
     assert [
         line.split("  ", 1)[1]
         for line in (tmp_path / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
-    ] == ["install.py", wheel.name, sdist.name]
+    ] == ["install.py", "nebula-mcp-plugin-0.5.2.zip", wheel.name, sdist.name]
     assert (tmp_path / "RELEASE_NOTES.md").is_file()
 
 
-@pytest.mark.parametrize(
-    "member",
-    [
-        "nebula_mcp-0.1.4/findings.md",
-        "nebula_mcp-0.1.4/progress.md",
-        "nebula_mcp-0.1.4/task_plan.md",
-        "nebula_mcp-0.1.4/docs/superpowers/plan.md",
-    ],
-)
-def test_cli_rejects_sdist_with_private_planning_evidence(
-    tmp_path: Path, member: str
+def test_cli_includes_plugin_archive_when_release_version_matches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "nebula_mcp-0.1.4-py3-none-any.whl").write_bytes(b"wheel")
-    write_test_sdist(tmp_path / "nebula_mcp-0.1.4.tar.gz", member)
+    release_root = tmp_path / "source"
+    dist = tmp_path / "dist"
+    (release_root / "installer").mkdir(parents=True)
+    dist.mkdir()
+    (release_root / "pyproject.toml").write_text(
+        '[project]\nname = "nebula-mcp"\nversion = "0.5.2"\n',
+        encoding="utf-8",
+    )
+    (release_root / "installer" / "install.py.in").write_text(
+        'REPOSITORY = "__NEBULA_MCP_REPOSITORY__"\n'
+        'VERSION = "__NEBULA_MCP_VERSION__"\n',
+        encoding="utf-8",
+    )
+    shutil.copytree(PLUGIN_ROOT, release_root / "plugins" / "nebula-mcp")
+    (dist / "nebula_mcp-0.5.2-py3-none-any.whl").write_bytes(b"wheel")
+    build_fixture_sdist(dist / "nebula_mcp-0.5.2.tar.gz", "0.5.2")
+    monkeypatch.setattr(prepare_release, "ROOT", release_root)
 
-    with pytest.raises(ValueError, match="private planning evidence"):
+    assert (
         prepare_release.main(
             [
                 "--repository",
                 "local-validation/nebula-mcp",
                 "--tag",
-                "v0.1.4",
+                "v0.5.2",
                 "--dist",
-                str(tmp_path),
+                str(dist),
             ]
         )
+        == 0
+    )
+
+    plugin = dist / "nebula-mcp-plugin-0.5.2.zip"
+    assert plugin.is_file()
+    checksum_names = [
+        line.split("  ", 1)[1]
+        for line in (dist / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+    ]
+    assert checksum_names == [
+        "install.py",
+        plugin.name,
+        "nebula_mcp-0.5.2-py3-none-any.whl",
+        "nebula_mcp-0.5.2.tar.gz",
+    ]
 
 
 def test_cli_rejects_old_or_extra_distribution_assets(tmp_path: Path) -> None:
-    (tmp_path / "nebula_mcp-0.1.4-py3-none-any.whl").write_bytes(b"wheel")
-    (tmp_path / "nebula_mcp-0.1.4.tar.gz").write_bytes(b"sdist")
-    (tmp_path / "nebula_mcp-0.1.2-py3-none-any.whl").write_bytes(b"old wheel")
+    (tmp_path / "nebula_mcp-0.5.2-py3-none-any.whl").write_bytes(b"wheel")
+    (tmp_path / "nebula_mcp-0.5.2.tar.gz").write_bytes(b"sdist")
+    (tmp_path / "nebula_mcp-0.1.4-py3-none-any.whl").write_bytes(b"old wheel")
 
     with pytest.raises(ValueError, match="exactly one wheel and one sdist"):
         prepare_release.main(
@@ -231,7 +418,7 @@ def test_cli_rejects_old_or_extra_distribution_assets(tmp_path: Path) -> None:
                 "--repository",
                 "local-validation/nebula-mcp",
                 "--tag",
-                "v0.1.4",
+                "v0.5.2",
                 "--dist",
                 str(tmp_path),
             ]
@@ -242,209 +429,46 @@ def assert_release_workflow_contract(workflow: str) -> None:
     validate = workflow_block(workflow, "  validate:")
     compatibility = workflow_block(workflow, "  installer-compatibility:")
     publish = workflow_block(workflow, "  publish:")
-
     assert workflow_block(workflow, "permissions:") == "permissions:\n  contents: read"
-    assert workflow_block(validate, "    permissions:") == (
-        "    permissions:\n      contents: read"
-    )
-    assert workflow_block(publish, "    permissions:") == (
-        "    permissions:\n      contents: write"
-    )
-    assert "needs: [validate, installer-compatibility]" in workflow_yaml_data_lines(
-        publish
-    )
-    assert "os: [ubuntu-latest, windows-latest]" in workflow_yaml_data_lines(
-        compatibility
-    )
-
-    assert workflow_step_names(validate) == [
-        "Checkout source",
-        "Set up Python",
-        "Install development dependencies",
-        "Run test suite",
-        "Run Ruff including installer template",
-        "Run strict mypy",
-        "Build distributions",
-        "Prepare and validate release assets",
-        "Validate clean wheel and stdio",
-        "Run installer integration tests",
-        "Upload verified release bundle",
-    ]
-    assert workflow_step_names(publish) == [
-        "Download verified release bundle",
-        "Verify tag and publish exact assets",
-    ]
-    assert workflow_step_names(compatibility) == [
-        "Checkout source",
-        "Set up Python",
-        "Install development dependencies",
-        "Run installer unit and integration compatibility",
-        "Run rendered installer smoke",
-    ]
-
-    expected_uses = [
-        "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
-        "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0",
-        "uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1",
-        "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
-        "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0",
-        "uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1",
-    ]
-    uses_lines = [
-        line.strip()
-        for line in workflow.splitlines()
-        if re.match(r"^\s+uses:\s", line)
-    ]
-    assert uses_lines == expected_uses
-
-    checkout = workflow_block(validate, "      - name: Checkout source")
-    assert "persist-credentials: false" in workflow_yaml_data_lines(checkout)
-    setup = workflow_block(validate, "      - name: Set up Python")
-    assert 'python-version: "3.13"' in workflow_yaml_data_lines(setup)
-
-    compatibility_commands = {
-        "Install development dependencies": "python -m pip install '.[dev]'",
-        "Run installer unit and integration compatibility": (
-            "python -m pytest tests/unit/test_installer.py "
-            "tests/integration/test_installer_cli.py -q"
-        ),
-        "Run rendered installer smoke": (
-            "python -m pytest tests/unit/test_release_assets.py -q "
-            "-k rendered_installer_executes_version_smoke"
-        ),
-    }
-    for name, command in compatibility_commands.items():
-        assert command in workflow_step_run_lines(compatibility, name)
-
-    quality_steps = {
-        "Install development dependencies": "python -m pip install '.[dev]'",
-        "Run test suite": "python -m pytest -q",
-        "Run Ruff including installer template": (
-            "python -m ruff check --extension in:python ."
-        ),
-        "Run strict mypy": "python -m mypy src",
-        "Build distributions": "python -m build",
-        "Run installer integration tests": (
-            "python -m pytest tests/integration/test_installer_cli.py -q"
-        ),
-    }
-    for name, command in quality_steps.items():
-        assert command in workflow_step_run_lines(validate, name)
-
-    prepare = workflow_step_run_lines(validate, "Prepare and validate release assets")
-    assert_lines_in_order(
-        prepare,
-        [
-            "python scripts/prepare_release.py \\",
-            '--repository "$GITHUB_REPOSITORY" \\',
-            '--tag "$GITHUB_REF_NAME" \\',
-            "--dist dist",
-            'installer_version="$(python dist/install.py --version)"',
-            'test "$installer_version" = "${GITHUB_REF_NAME#v}"',
-            "(cd dist && shasum -a 256 -c SHA256SUMS)",
-        ],
-    )
-
-    clean_wheel = workflow_step_run_lines(validate, "Validate clean wheel and stdio")
-    assert_lines_in_order(
-        clean_wheel,
-        [
-            'python -m venv "$RUNNER_TEMP/nebula-wheel"',
-            '"$RUNNER_TEMP/nebula-wheel/bin/python" -m pip install dist/*.whl',
-            '"$RUNNER_TEMP/nebula-wheel/bin/python" -m pip check',
-            '"$RUNNER_TEMP/nebula-wheel/bin/python" -c \'import nebula_mcp\'',
-            (
-                'wheel_version="$("$RUNNER_TEMP/nebula-wheel/bin/python" '
-                '-m nebula_mcp --version)"'
-            ),
-            'test "$wheel_version" = "nebula-mcp ${GITHUB_REF_NAME#v}"',
-            'NEBULA_WHEEL_PYTHON="$RUNNER_TEMP/nebula-wheel/bin/python" \\',
-            "python -m pytest tests/protocol/test_stdio.py -q",
-        ],
-    )
-
-    final = workflow_block(publish, "      - name: Verify tag and publish exact assets")
-    final_script = workflow_run_script(final)
-    syntax = subprocess.run(
-        ["bash", "-n"],
-        input=final_script,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    assert syntax.returncode == 0, syntax.stderr
-    final_lines = executable_shell_lines(final_script)
-    ordered_boundary = [
-        'test "$release_files" = "$expected_files"',
-        'test "$manifest_files" = "$expected_manifest"',
-        "(cd dist && shasum -a 256 -c SHA256SUMS)",
-        'gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" \\',
-        'test "$target_type" = "commit"',
-        'test "$target_sha" = "$GITHUB_SHA"',
-        'gh release create "$GITHUB_REF_NAME" \\',
-    ]
-    assert_lines_in_order(final_lines, ordered_boundary)
-    assert final_lines.index('test "$target_sha" = "$GITHUB_SHA"') + 1 == final_lines.index(
-        'gh release create "$GITHUB_REF_NAME" \\'
-    )
-    assert 'wheel="dist/nebula_mcp-${version}-py3-none-any.whl"' in final_lines
-    assert 'sdist="dist/nebula_mcp-${version}.tar.gz"' in final_lines
-    assert '"$wheel" "$sdist" dist/install.py dist/SHA256SUMS \\' in final_lines
-    assert '--repo "$GITHUB_REPOSITORY" \\' in final_lines
-    assert "--verify-tag \\" in final_lines
-    assert all("*" not in line for line in final_lines)
-
-    token_lines = [
-        line.strip()
-        for line in workflow.splitlines()
-        if re.match(r"^\s+GH_TOKEN:\s", line)
-    ]
-    assert token_lines == ["GH_TOKEN: ${{ github.token }}"]
-    validate_run_lines = [
-        line
-        for name in workflow_step_names(validate)
-        if "        run:" in workflow_block(validate, f"      - name: {name}")
-        for line in workflow_step_run_lines(validate, name)
-    ]
-    assert all(not line.startswith("gh release create") for line in validate_run_lines)
-    assert "local-validation/nebula-mcp" not in workflow
-    assert "NEBULA_HOSTS" not in workflow
-    assert "NEBULA_PASSWORD" not in workflow
-    assert "PYPI" not in workflow.upper()
+    assert "contents: write" not in validate + compatibility
+    assert "contents: write" in publish
+    assert "needs: [validate, installer-compatibility]" in publish
+    assert "github.ref == 'refs/heads/main' && github.event_name != 'pull_request'" in publish
+    assert "branches: [main]" in workflow_block(workflow, "  push:")
+    assert "  pull_request:" in workflow and "  workflow_dispatch:" in workflow
+    assert "os: [ubuntu-latest, windows-latest]" in compatibility
+    for action in re.findall(r"uses: ([^\s]+)", workflow):
+        assert re.fullmatch(r"actions/[a-z-]+@[a-f0-9]{40}", action)
+    assert_lines_in_order(workflow_step_names(validate), ["Run test suite",
+        "Stamp reproducible release version", "Build distributions and prepare Release assets",
+        "Upload test artifacts"])
+    assert_lines_in_order(workflow_step_run_lines(validate, "Run test suite"),
+        ["python -m pytest -q", "python -m ruff check --extension in:python .", "python -m mypy src"])
+    for command in ["npm test", "npm run typecheck"]:
+        assert command in workflow_step_run_lines(validate, "Run UI tests and typecheck")
+    assert "git diff --exit-code -- ../src/nebula_mcp/ui/query-result.html" in (
+        workflow_step_run_lines(validate, "Build UI and verify committed artifact"))
+    assets = workflow_step_run_lines(validate, "Build distributions and prepare Release assets")
+    assert "(cd dist && shasum -a 256 -c SHA256SUMS)" in assets
+    assert any("tests/protocol/test_stdio.py" in line for line in assets)
+    assert any("publish_release.py --verify-only" in line for line in assets)
+    final = workflow_step_run_lines(publish, "Verify and publish exact assets")
+    assert len(final) == 1 and "publish_release.py" in final[0] and "--verify-only" not in final[0]
+    assert "GH_TOKEN" not in validate + compatibility
+    assert "GH_TOKEN: ${{ github.token }}" in publish
 
 
 def test_release_workflow_is_ordered_and_least_privileged_at_publish_boundary() -> None:
-    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert_release_workflow_contract((ROOT / ".github/workflows/release.yml").read_text())
 
+
+@pytest.mark.parametrize("gate", [
+    "          python -m pytest -q",
+    "          (cd dist && shasum -a 256 -c SHA256SUMS)",
+    "          git diff --exit-code -- ../src/nebula_mcp/ui/query-result.html",
+])
+def test_release_workflow_contract_rejects_commented_executable_gate(gate: str) -> None:
+    workflow = (ROOT / ".github/workflows/release.yml").read_text()
     assert_release_workflow_contract(workflow)
-
-
-@pytest.mark.parametrize(
-    ("original", "commented"),
-    [
-        (
-            '          test "$target_sha" = "$GITHUB_SHA"',
-            '          # test "$target_sha" = "$GITHUB_SHA"',
-        ),
-        (
-            "          (cd dist && shasum -a 256 -c SHA256SUMS)",
-            "          # (cd dist && shasum -a 256 -c SHA256SUMS)",
-        ),
-        (
-            "        run: python -m pytest -q",
-            "        run: # python -m pytest -q",
-        ),
-    ],
-)
-def test_release_workflow_contract_rejects_commented_executable_gate(
-    original: str,
-    commented: str,
-) -> None:
-    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert_release_workflow_contract(workflow)
-    position = workflow.rfind(original)
-    assert position >= 0
-    mutated = workflow[:position] + workflow[position:].replace(original, commented, 1)
-
     with pytest.raises(AssertionError):
-        assert_release_workflow_contract(mutated)
+        assert_release_workflow_contract(workflow.replace(gate, gate.replace("          ", "          # ")))

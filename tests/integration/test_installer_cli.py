@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import stat
@@ -16,6 +17,7 @@ from typing import cast
 import pytest
 
 from tests.fixtures.build_installer_fixture import (
+    build_fixture_plugin_archive,
     build_fixture_wheel,
     serve_directory,
     write_checksum_manifest,
@@ -29,6 +31,7 @@ class FakeCodexHarness:
     command: tuple[str, ...]
     state_path: Path
     log_path: Path
+    config_path: Path
 
     @classmethod
     def empty(cls, tmp_path: Path) -> FakeCodexHarness:
@@ -58,6 +61,7 @@ class FakeCodexHarness:
     ) -> FakeCodexHarness:
         state_path = tmp_path / "fake-codex-state.json"
         log_path = tmp_path / "fake-codex-commands.jsonl"
+        config_path = tmp_path / "codex-home" / "config.toml"
         if launcher is not None:
             state_path.write_text(
                 json.dumps(
@@ -88,8 +92,15 @@ class FakeCodexHarness:
             str(state_path),
             "--log",
             str(log_path),
+            "--config-file",
+            str(config_path),
         )
-        return cls(command=command, state_path=state_path, log_path=log_path)
+        return cls(
+            command=command,
+            state_path=state_path,
+            log_path=log_path,
+            config_path=config_path,
+        )
 
     @property
     def commands(self) -> list[list[str]]:
@@ -99,8 +110,24 @@ class FakeCodexHarness:
 
     @property
     def registration_env(self) -> dict[str, str]:
+        if self.config_path.exists() and "# fake-codex-nebula\n" in self.config_path.read_text(
+            encoding="utf-8"
+        ):
+            environment: dict[str, str] = {}
+            section = self.config_path.read_text(encoding="utf-8").split(
+                "# fake-codex-nebula\n", 1
+            )[1]
+            for line in section.splitlines():
+                if line.startswith("NEBULA_"):
+                    key, value = line.split(" = ", 1)
+                    environment[key] = json.loads(value)
+            return environment
         payload = json.loads(self.state_path.read_text(encoding="utf-8"))
         return cast(dict[str, str], payload["transport"]["env"])
+
+    @property
+    def plugin_state_path(self) -> Path:
+        return self.state_path.with_name("fake-codex-plugin.json")
 
 
 def create_managed_install(installer: ModuleType, root: Path) -> object:
@@ -216,6 +243,463 @@ def test_first_registration_uses_get_then_add(tmp_path: Path) -> None:
             str(paths.launcher),
         ],
     ]
+
+
+def test_fresh_plugin_registration_adds_marketplace_before_plugin(tmp_path: Path) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    marketplace = paths.root / "marketplace"
+    (marketplace / ".agents" / "plugins").mkdir(parents=True)
+    (marketplace / ".agents" / "plugins" / "marketplace.json").write_text(
+        json.dumps({"name": "nebula-mcp-local", "plugins": []}),
+        encoding="utf-8",
+    )
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+
+    result = installer.ensure_plugin_registration(
+        paths=paths,
+        system_python=Path(sys.executable).resolve(),
+        codex_command=fake_codex.command,
+        migrate=False,
+    )
+
+    assert result == "plugin registration created"
+    assert fake_codex.commands == [
+        ["mcp", "get", "nebula", "--json"],
+        ["plugin", "marketplace", "add", str(marketplace), "--json"],
+        ["plugin", "add", "nebula-mcp@nebula-mcp-local", "--json"],
+    ]
+    assert not any(command[:2] == ["mcp", "add"] for command in fake_codex.commands)
+
+
+def test_existing_managed_mcp_is_preserved_without_explicit_plugin_migration(
+    tmp_path: Path,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    fake_codex = FakeCodexHarness.with_managed_registration(
+        tmp_path,
+        launcher=paths.launcher,
+        env={"NEBULA_PASSWORD": "desktop-only"},
+    )
+
+    result = installer.ensure_plugin_registration(
+        paths=paths,
+        system_python=Path(sys.executable).resolve(),
+        codex_command=fake_codex.command,
+        migrate=False,
+    )
+
+    assert "--migrate-to-plugin" in result
+    assert fake_codex.commands == [["mcp", "get", "nebula", "--json"]]
+    assert fake_codex.registration_env == {"NEBULA_PASSWORD": "desktop-only"}
+
+
+def test_explicit_plugin_migration_removes_only_managed_mcp_then_adds_plugin(
+    tmp_path: Path,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    marketplace = paths.root / "marketplace"
+    (marketplace / ".agents" / "plugins").mkdir(parents=True)
+    (marketplace / ".agents" / "plugins" / "marketplace.json").write_text(
+        json.dumps({"name": "nebula-mcp-local", "plugins": []}),
+        encoding="utf-8",
+    )
+    fake_codex = FakeCodexHarness.with_managed_registration(
+        tmp_path,
+        launcher=paths.launcher,
+        env={},
+    )
+
+    result = installer.ensure_plugin_registration(
+        paths=paths,
+        system_python=Path(sys.executable).resolve(),
+        codex_command=fake_codex.command,
+        migrate=True,
+    )
+
+    assert result == "plugin registration created"
+    assert fake_codex.commands == [
+        ["mcp", "get", "nebula", "--json"],
+        ["mcp", "remove", "nebula"],
+        ["plugin", "marketplace", "add", str(marketplace), "--json"],
+        ["plugin", "add", "nebula-mcp@nebula-mcp-local", "--json"],
+    ]
+
+
+def test_plugin_checksum_failure_preserves_active_runtime_and_plugin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = create_managed_install(installer, tmp_path / "data")
+    original_state = paths.state.read_bytes()
+    original_plugin = paths.root / "marketplace" / "plugins" / "nebula-mcp"
+    original_plugin.mkdir(parents=True)
+    (original_plugin / "README.md").write_text("original", encoding="utf-8")
+    assets = tmp_path / "assets"
+    wheel = build_fixture_wheel(assets, version="0.2.0")
+    plugin = build_fixture_plugin_archive(assets, version="0.2.0")
+    manifest = write_checksum_manifest(assets, [wheel, plugin])
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            hashlib.sha256(plugin.read_bytes()).hexdigest(),
+            "0" * 64,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PIP_NO_INDEX", "1")
+
+    with (
+        serve_directory(assets) as base_url,
+        pytest.raises(installer.InstallerError, match="checksum"),
+    ):
+        installer.install_plugin_release(
+            paths,
+            version="0.2.0",
+            asset_base_url=base_url,
+            system_python=Path(sys.executable),
+        )
+
+    assert paths.state.read_bytes() == original_state
+    assert (original_plugin / "README.md").read_text(encoding="utf-8") == "original"
+    assert not (paths.versions / "0.2.0").exists()
+
+
+def test_plugin_install_renders_managed_config_and_marketplace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    assets = tmp_path / "assets"
+    wheel = build_fixture_wheel(assets, version="0.2.0")
+    plugin = build_fixture_plugin_archive(assets, version="0.2.0")
+    write_checksum_manifest(assets, [wheel, plugin])
+    monkeypatch.setenv("PIP_NO_INDEX", "1")
+
+    with serve_directory(assets) as base_url:
+        state = installer.install_plugin_release(
+            paths,
+            version="0.2.0",
+            asset_base_url=base_url,
+            system_python=Path(sys.executable).resolve(),
+        )
+
+    assert state.version == "0.2.0"
+    assert json.loads(paths.plugin_root.joinpath(".mcp.json").read_text(encoding="utf-8")) == {
+        "mcpServers": {
+            "nebula": {
+                "command": str(Path(sys.executable).resolve()),
+                "args": [str(paths.launcher)],
+            }
+        }
+    }
+    marketplace = json.loads(paths.marketplace_manifest.read_text(encoding="utf-8"))
+    assert marketplace["name"] == "nebula-mcp-local"
+    assert marketplace["plugins"][0]["source"]["path"] == "./plugins/nebula-mcp"
+    serialized = "\n".join(
+        path.read_text(errors="ignore")
+        for path in paths.marketplace_root.rglob("*")
+        if path.is_file()
+    )
+    assert "NEBULA_PASSWORD" not in serialized
+    if os.name != "nt":
+        assert all(
+            path.stat().st_mode & 0o777 == (0o700 if path.is_dir() else 0o600)
+            for path in [paths.marketplace_root, *paths.marketplace_root.rglob("*")]
+        )
+
+
+def test_plugin_activation_failure_rolls_back_fresh_runtime_and_plugin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    assets = tmp_path / "assets"
+    wheel = build_fixture_wheel(assets, version="0.2.0")
+    plugin = build_fixture_plugin_archive(assets, version="0.2.0")
+    write_checksum_manifest(assets, [wheel, plugin])
+    monkeypatch.setenv("PIP_NO_INDEX", "1")
+    secure_tree = installer._secure_plugin_tree
+
+    def fail_after_activation(root: Path) -> None:
+        if root == paths.marketplace_root:
+            raise installer.InstallerError("plugin", "injected activation failure", "retry")
+        secure_tree(root)
+
+    monkeypatch.setattr(installer, "_secure_plugin_tree", fail_after_activation)
+
+    with (
+        serve_directory(assets) as base_url,
+        pytest.raises(installer.InstallerError, match="injected activation failure"),
+    ):
+        installer.install_plugin_release(
+            paths,
+            version="0.2.0",
+            asset_base_url=base_url,
+            system_python=Path(sys.executable).resolve(),
+        )
+
+    assert not (paths.versions / "0.2.0").exists()
+    assert not paths.state.exists()
+    assert not paths.launcher.exists()
+    assert not paths.marketplace_root.exists()
+
+
+def test_default_install_route_registers_plugin_not_standalone_mcp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+
+    def install_plugin(*args: object, **kwargs: object) -> object:
+        managed = create_managed_install(installer, paths.root)
+        installer._write_managed_marketplace(paths.marketplace_root)
+        return managed
+
+    monkeypatch.setattr(installer, "default_paths", lambda: paths)
+    monkeypatch.setattr(installer, "find_codex", lambda: fake_codex.command)
+    monkeypatch.setattr(installer, "install_plugin_release", install_plugin)
+
+    installer.install_and_register(
+        argparse.Namespace(
+            yes=True,
+            replace_registration=False,
+            mode="plugin",
+            migrate_to_plugin=False,
+        )
+    )
+
+    assert [command[:2] for command in fake_codex.commands] == [
+        ["mcp", "get"],
+        ["plugin", "marketplace"],
+        ["plugin", "add"],
+    ]
+    assert not any(command[:2] == ["mcp", "add"] for command in fake_codex.commands)
+
+
+def test_explicit_mcp_mode_keeps_standalone_registration_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+    monkeypatch.setattr(installer, "default_paths", lambda: paths)
+    monkeypatch.setattr(installer, "find_codex", lambda: fake_codex.command)
+    monkeypatch.setattr(
+        installer,
+        "install_release",
+        lambda *args, **kwargs: create_managed_install(installer, paths.root),
+    )
+
+    installer.install_and_register(
+        argparse.Namespace(
+            yes=True,
+            replace_registration=False,
+            mode="mcp",
+            migrate_to_plugin=False,
+        )
+    )
+
+    assert fake_codex.commands[-1][:3] == ["mcp", "add", "nebula"]
+    assert not any(command[:2] == ["plugin", "add"] for command in fake_codex.commands)
+
+
+def test_configure_codex_writes_defaults_without_putting_password_in_argv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = create_managed_install(installer, tmp_path / "data")
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+    fake_codex.config_path.parent.mkdir(parents=True)
+    fake_codex.config_path.write_text("model = \"test-model\"\n", encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(fake_codex.config_path.parent))
+    password = 'secret "quoted" \\ value\nnext-line'
+
+    result = installer.configure_codex(
+        paths=paths,
+        codex_command=fake_codex.command,
+        addresses="db.example.invalid:9669",
+        username="readonly-user",
+        password=password,
+    )
+
+    assert result == "nebula MCP configuration updated; restart Codex to apply it"
+    assert fake_codex.registration_env == {
+        "NEBULA_ADDRESSES": "db.example.invalid:9669",
+        "NEBULA_USERNAME": "readonly-user",
+        "NEBULA_PASSWORD": password,
+        "NEBULA_CONNECT_TIMEOUT_MS": "30000",
+        "NEBULA_ALLOW_MUTATIONS": "false",
+    }
+    assert "model = \"test-model\"" in fake_codex.config_path.read_text(encoding="utf-8")
+    assert all(password not in argument for command in fake_codex.commands for argument in command)
+
+
+def test_configure_codex_rolls_back_original_config_when_secret_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = create_managed_install(installer, tmp_path / "data")
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+    fake_codex.config_path.parent.mkdir(parents=True)
+    original = b'model = "keep-me"\n'
+    fake_codex.config_path.write_bytes(original)
+    monkeypatch.setenv("CODEX_HOME", str(fake_codex.config_path.parent))
+    monkeypatch.setattr(
+        installer,
+        "replace_codex_secret_placeholder",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("injected")),
+    )
+
+    with pytest.raises(installer.InstallerError, match="configuration"):
+        installer.configure_codex(
+            paths=paths,
+            codex_command=fake_codex.command,
+            addresses="db.example.invalid:9669",
+            username="readonly-user",
+            password="must-not-leak",
+        )
+
+    assert fake_codex.config_path.read_bytes() == original
+
+
+def test_configuration_status_is_redacted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    installer = load_installer_template()
+    paths = create_managed_install(installer, tmp_path / "data")
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+    fake_codex.config_path.parent.mkdir(parents=True)
+    monkeypatch.setenv("CODEX_HOME", str(fake_codex.config_path.parent))
+    installer.configure_codex(
+        paths=paths,
+        codex_command=fake_codex.command,
+        addresses="private-host.invalid:9669",
+        username="private-user",
+        password="private-password",
+    )
+
+    installer.print_configuration_status(fake_codex.command)
+
+    output = capsys.readouterr().out
+    assert "NEBULA_ADDRESSES: set" in output
+    assert "NEBULA_USERNAME: set" in output
+    assert "NEBULA_PASSWORD: set" in output
+    assert "NEBULA_CONNECT_TIMEOUT_MS: set" in output
+    assert "NEBULA_ALLOW_MUTATIONS: set" in output
+    assert "private-host" not in output
+    assert "private-user" not in output
+    assert "private-password" not in output
+
+
+def test_clear_configuration_removes_only_standalone_overlay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = create_managed_install(installer, tmp_path / "data")
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+    fake_codex.config_path.parent.mkdir(parents=True)
+    fake_codex.config_path.write_text("model = \"keep-me\"\n", encoding="utf-8")
+    fake_codex.plugin_state_path.write_text('{"installed":true}', encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(fake_codex.config_path.parent))
+    installer.configure_codex(
+        paths=paths,
+        codex_command=fake_codex.command,
+        addresses="db.example.invalid:9669",
+        username="readonly-user",
+        password="clear-me",
+    )
+
+    result = installer.clear_codex_configuration(
+        paths=paths,
+        codex_command=fake_codex.command,
+    )
+
+    assert result == "nebula MCP connection configuration cleared"
+    assert "mcp_servers.nebula" not in fake_codex.config_path.read_text(encoding="utf-8")
+    assert "model = \"keep-me\"" in fake_codex.config_path.read_text(encoding="utf-8")
+    assert fake_codex.plugin_state_path.is_file()
+
+
+def test_plugin_uninstall_removes_plugin_then_marketplace_before_files(tmp_path: Path) -> None:
+    installer = load_installer_template()
+    paths = create_managed_install(installer, tmp_path / "data")
+    installer._write_managed_marketplace(paths.marketplace_root)
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+
+    installer.uninstall(paths, fake_codex.command)
+
+    assert fake_codex.commands == [
+        ["plugin", "remove", "nebula-mcp@nebula-mcp-local", "--json"],
+        ["plugin", "marketplace", "remove", "nebula-mcp-local"],
+    ]
+    assert not paths.root.exists()
+
+
+def test_plugin_uninstall_failure_retains_managed_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = create_managed_install(installer, tmp_path / "data")
+    installer._write_managed_marketplace(paths.marketplace_root)
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+    monkeypatch.setenv("FAKE_CODEX_PLUGIN_REMOVE_FAIL", "1")
+
+    with pytest.raises(installer.InstallerError, match="remove"):
+        installer.uninstall(paths, fake_codex.command)
+
+    assert paths.root.exists()
+    assert paths.ownership_marker.is_file()
+
+
+def test_marketplace_uninstall_failure_retains_managed_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = create_managed_install(installer, tmp_path / "data")
+    installer._write_managed_marketplace(paths.marketplace_root)
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+    monkeypatch.setenv("FAKE_CODEX_MARKETPLACE_REMOVE_FAIL", "1")
+
+    with pytest.raises(installer.InstallerError, match="marketplace"):
+        installer.uninstall(paths, fake_codex.command)
+
+    assert fake_codex.commands == [
+        ["plugin", "remove", "nebula-mcp@nebula-mcp-local", "--json"],
+        ["plugin", "marketplace", "remove", "nebula-mcp-local"],
+    ]
+    assert paths.root.exists()
+    assert paths.ownership_marker.is_file()
+
+
+def test_plugin_migration_never_removes_conflicting_registration(tmp_path: Path) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    fake_codex = FakeCodexHarness.with_conflicting_registration(tmp_path)
+
+    with pytest.raises(installer.InstallerError, match="another command"):
+        installer.ensure_plugin_registration(
+            paths=paths,
+            system_python=Path(sys.executable).resolve(),
+            codex_command=fake_codex.command,
+            migrate=True,
+        )
+
+    assert fake_codex.commands == [["mcp", "get", "nebula", "--json"]]
 
 
 def test_upgrade_does_not_remove_add_or_read_environment(tmp_path: Path) -> None:
@@ -1233,3 +1717,39 @@ def test_non_utf8_checksum_manifest_is_an_installer_error(tmp_path: Path) -> Non
         )
 
     assert raised.value.stage == "checksum"
+
+
+def test_install_local_assets_without_release_download(tmp_path, monkeypatch):
+    installer = load_installer_template()
+    assets = tmp_path / "assets"
+    wheel = build_fixture_wheel(assets, version="0.3.0")
+    plugin = build_fixture_plugin_archive(assets, version="0.3.0")
+    write_checksum_manifest(assets, [wheel, plugin])
+    monkeypatch.setenv("PIP_NO_INDEX", "1")
+    def reject_download(*args, **kwargs):
+        raise AssertionError("Local asset installation must not download release assets")
+    monkeypatch.setattr(installer, "download_file", reject_download)
+    paths = installer.managed_paths(tmp_path / "data")
+    state = installer.install_plugin_release(
+        paths, version="0.3.0", asset_base_url="https://example.invalid/releases",
+        system_python=Path(sys.executable), local_assets=assets,
+    )
+    assert state.version == "0.3.0"
+    assert paths.plugin_root.is_dir()
+    assert installer.build_parser().parse_args(["--assets", str(assets)]).assets == assets
+
+
+def test_local_asset_checksum_failure_does_not_activate_runtime(tmp_path):
+    installer = load_installer_template()
+    assets = tmp_path / "assets"
+    wheel = build_fixture_wheel(assets, version="0.3.0")
+    write_checksum_manifest(assets, [wheel])
+    wheel.write_bytes(b"modified after checksum")
+    paths = installer.managed_paths(tmp_path / "data")
+    with pytest.raises(installer.InstallerError, match="checksum"):
+        installer.install_release(
+            paths, version="0.3.0", asset_base_url="https://example.invalid/releases",
+            system_python=Path(sys.executable), local_assets=assets,
+        )
+    assert not paths.state.exists()
+    assert not (paths.versions / "0.3.0").exists()

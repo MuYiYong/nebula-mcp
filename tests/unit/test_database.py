@@ -15,7 +15,7 @@ class FakeResult:
 
 class FakeClient:
     def __init__(self, *, result: object | None = None, error: Exception | None = None) -> None:
-        self.result = result
+        self.result = result if result is not None else FakeResult()
         self.error = error
         self.statements: list[str] = []
 
@@ -61,7 +61,7 @@ class PoolFactory:
 
 
 @pytest.mark.anyio
-async def test_execute_borrows_and_returns_client(settings: Settings) -> None:
+async def test_execute_reuses_client_until_close(settings: Settings) -> None:
     result = FakeResult()
     client = FakeClient(result=result)
     pool = FakePool(client)
@@ -71,12 +71,16 @@ async def test_execute_borrows_and_returns_client(settings: Settings) -> None:
     actual = await gateway.execute("RETURN 1")
 
     assert actual is result
-    assert client.statements == ["RETURN 1"]
+    await gateway.execute("RETURN 2")
+    await gateway.version()
+    assert client.statements == ["RETURN 1", "RETURN 2", "RETURN 1"]
+    assert (pool.borrowed, pool.returned) == (1, 0)
+    gateway.close()
     assert (pool.borrowed, pool.returned) == (1, 1)
 
 
 @pytest.mark.anyio
-async def test_execute_returns_client_after_database_error(settings: Settings) -> None:
+async def test_execute_keeps_session_after_database_error(settings: Settings) -> None:
     pool = FakePool(FakeClient(error=RuntimeError("runtime-secret must not escape")))
     gateway = DatabaseGateway(settings, pool_factory=PoolFactory(pool))
     gateway.open()
@@ -87,6 +91,8 @@ async def test_execute_returns_client_after_database_error(settings: Settings) -
     assert caught.value.category == "database_error"
     assert str(caught.value) == "Database query failed"
     assert "runtime-secret" not in str(caught.value)
+    assert (pool.borrowed, pool.returned) == (1, 0)
+    gateway.close()
     assert (pool.borrowed, pool.returned) == (1, 1)
 
 
@@ -97,6 +103,8 @@ async def test_version_uses_borrowed_client(settings: Settings) -> None:
     gateway.open()
 
     assert await gateway.version() == "5.3.0"
+    assert (pool.borrowed, pool.returned) == (1, 0)
+    gateway.close()
     assert (pool.borrowed, pool.returned) == (1, 1)
 
 
@@ -139,3 +147,21 @@ async def test_execute_before_open_is_actionable(settings: Settings) -> None:
 
     assert caught.value.category == "configuration_error"
     assert caught.value.suggestion == "Open the database gateway before executing tools"
+
+
+@pytest.mark.anyio
+async def test_version_checks_retained_session_health(settings):
+    class ExpiredSessionClient(FakeClient):
+        def execute(self, statement):
+            result = FakeResult()
+            result.status_code = "08003"
+            return result
+    pool = FakePool(ExpiredSessionClient())
+    gateway = DatabaseGateway(settings, pool_factory=PoolFactory(pool))
+    gateway.open()
+    with pytest.raises(NebulaMCPError) as caught:
+        await gateway.version()
+    assert caught.value.category == "connection_error"
+    assert pool.borrowed == 1
+    assert pool.returned == 0
+    gateway.close()

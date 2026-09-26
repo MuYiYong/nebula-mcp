@@ -8,7 +8,16 @@ import pytest
 from mcp import Client
 
 from nebula_mcp.errors import NebulaMCPError
-from nebula_mcp.models import GraphSchemaInput, ListGraphsInput, MutationInput, QueryInput
+from nebula_mcp.models import (
+    ExpandNodeInput,
+    GraphListOutput,
+    GraphSchemaInput,
+    GraphSummary,
+    ListGraphsInput,
+    MutationInput,
+    QueryInput,
+    QueryOutput,
+)
 from nebula_mcp.server import create_server
 from nebula_mcp.service import NebulaService
 
@@ -18,28 +27,57 @@ pytestmark = pytest.mark.skipif(
 )
 
 SCHEMA = "default_schema"
-GRAPH = "cypher_compat_381_graph"
-GRAPH_TYPE = "cypher_compat_381_type"
+EVALUATION_GRAPH = "cypher_compat_381_graph"
+EVALUATION_GRAPH_TYPE = "cypher_compat_381_type"
 EVALUATIONS = Path(__file__).resolve().parents[2] / "evaluations/remote_readonly.xml"
+
+
+async def _discover_graph_with_edge(
+    remote_service: NebulaService,
+) -> tuple[GraphSummary, str, QueryOutput]:
+    listed = await remote_service.list_graphs(ListGraphsInput(limit=100, offset=0))
+    for item in listed.graphs:
+        schema = item.schema_name or SCHEMA
+        reference = item.name if schema == SCHEMA else f"/{schema}/{item.name}"
+        seed = await remote_service.execute_query(
+            QueryInput(
+                statement=(
+                    f"USE {reference}\n"
+                    "MATCH (source)-[seed_edge]-(seed_neighbor) "
+                    "RETURN source, seed_edge, seed_neighbor LIMIT 1"
+                ),
+                include_analysis=False,
+                include_charts=False,
+            )
+        )
+        if seed.status.ok and seed.graph is not None and seed.graph.elements.edges:
+            return item, reference, seed
+    pytest.fail("no discovered graph contains an incident edge")
 
 
 @pytest.mark.anyio
 async def test_remote_version_graphs_and_schema(remote_service: NebulaService) -> None:
     connection = await remote_service.test_connection()
     graphs = await remote_service.list_graphs(ListGraphsInput(limit=100, offset=0))
+    graph, _, _ = await _discover_graph_with_edge(remote_service)
+    assert graph.graph_type is not None
     schema = await remote_service.get_graph_schema(
-        GraphSchemaInput(schema=SCHEMA, graph_type=GRAPH_TYPE)
+        GraphSchemaInput(
+            schema=graph.schema_name or SCHEMA,
+            graph_type=graph.graph_type,
+        )
     )
 
     assert connection.connected is True
     assert connection.version.startswith("5.3.0")
-    assert any(item.schema_name == SCHEMA and item.name == GRAPH for item in graphs.graphs)
+    assert graphs.returned_count > 0
+    assert graph in graphs.graphs
     assert {entity.entity_type for entity in schema.entities} >= {"Node", "Edge"}
-    assert sum(entity.entity_type == "Edge" for entity in schema.entities) == 3
 
 
 @pytest.mark.anyio
 async def test_remote_scalar_node_edge_and_path_shapes(remote_service: NebulaService) -> None:
+    _, reference, _ = await _discover_graph_with_edge(remote_service)
     scalar = await remote_service.execute_query(
         QueryInput(
             statement="RETURN 1 AS probe",
@@ -50,24 +88,21 @@ async def test_remote_scalar_node_edge_and_path_shapes(remote_service: NebulaSer
     )
     node = await remote_service.execute_query(
         QueryInput(
-            statement="MATCH (n) RETURN n LIMIT 1",
-            graph=GRAPH,
+            statement=f"USE {reference}\nMATCH (n) RETURN n LIMIT 1",
             include_analysis=False,
             include_charts=False,
         )
     )
     edge = await remote_service.execute_query(
         QueryInput(
-            statement="MATCH (a)-[e]->(b) RETURN e LIMIT 1",
-            graph=GRAPH,
+            statement=f"USE {reference}\nMATCH (a)-[e]-(b) RETURN e LIMIT 1",
             include_analysis=False,
             include_charts=False,
         )
     )
     path = await remote_service.execute_query(
         QueryInput(
-            statement="MATCH p = (a)-[e]->(b) RETURN p LIMIT 1",
-            graph=GRAPH,
+            statement=f"USE {reference}\nMATCH p = (a)-[e]-(b) RETURN p LIMIT 1",
             include_analysis=False,
             include_charts=False,
         )
@@ -89,6 +124,37 @@ async def test_remote_scalar_node_edge_and_path_shapes(remote_service: NebulaSer
 
 
 @pytest.mark.anyio
+async def test_remote_one_hop_expansion_uses_discovered_incident_node(
+    remote_service: NebulaService,
+) -> None:
+    _, reference, seed = await _discover_graph_with_edge(remote_service)
+    assert seed.graph is not None and seed.graph.elements.edges
+    source_id = seed.graph.elements.edges[0].data["source"]
+    source = next(
+        node.data for node in seed.graph.elements.nodes if node.data["id"] == source_id
+    )
+    element_id = source["element_id"]
+    assert isinstance(element_id, str)
+
+    expansion = await remote_service.expand_node(
+        ExpandNodeInput(graph=reference, element_id=element_id, max_rows=25)
+    )
+
+    expected = (
+        f"USE {reference}\n"
+        f"MATCH (source WHERE element_id(source) = {element_id})-[edge]-(neighbor)\n"
+        "RETURN source, edge, neighbor\n"
+        "LIMIT 25"
+    )
+    assert expansion.status.ok is True
+    assert expansion.query.read_only is True
+    assert expansion.query.statement == expected
+    assert expansion.query.executed_statement == expected
+    assert expansion.graph.elements.nodes
+    assert expansion.graph.elements.edges
+
+
+@pytest.mark.anyio
 async def test_remote_configuration_still_denies_mutation(remote_service: NebulaService) -> None:
     with pytest.raises(NebulaMCPError) as caught:
         await remote_service.execute_mutation(
@@ -102,13 +168,23 @@ async def test_remote_configuration_still_denies_mutation(remote_service: Nebula
 @pytest.mark.anyio
 async def test_remote_mcp_evaluation_answers(remote_service: NebulaService) -> None:
     qa_pairs = ElementTree.parse(EVALUATIONS).getroot().findall("qa_pair")
+    graphs: GraphListOutput = await remote_service.list_graphs(
+        ListGraphsInput(limit=100, offset=0)
+    )
+    if not any(
+        item.schema_name == SCHEMA
+        and item.name == EVALUATION_GRAPH
+        and item.graph_type == EVALUATION_GRAPH_TYPE
+        for item in graphs.graphs
+    ):
+        pytest.skip("the mutable XML evaluation fixture graph is not present")
     server = create_server(service=remote_service)
 
     async with Client(server) as client:
         for qa_pair in qa_pairs:
             result = await client.call_tool(
                 "nebula_get_graph_schema",
-                {"schema": SCHEMA, "graph_type": GRAPH_TYPE},
+                {"schema": SCHEMA, "graph_type": EVALUATION_GRAPH_TYPE},
             )
             assert result.is_error is False
             facts = _schema_facts(result.structured_content)

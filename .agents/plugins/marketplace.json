@@ -1,0 +1,20 @@
+{
+  "name": "nebula-mcp-local",
+  "interface": {
+    "displayName": "Nebula MCP Local"
+  },
+  "plugins": [
+    {
+      "name": "nebula-mcp",
+      "source": {
+        "source": "local",
+        "path": "./plugins/nebula-mcp"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

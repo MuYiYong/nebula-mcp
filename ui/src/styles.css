@@ -1,0 +1,187 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: transparent;
+  color: CanvasText;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+}
+
+.query-result {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.query-result button,
+.query-result select {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, Canvas 95%, CanvasText 5%);
+  color: inherit;
+  cursor: pointer;
+}
+
+.query-result button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.query-result h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.query-result pre {
+  max-height: 180px;
+  margin: 0 0 8px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 92%, CanvasText 8%);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+[role="tablist"] {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+}
+
+[role="tab"] {
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+}
+
+[role="tab"][aria-selected="true"] {
+  border-bottom-color: AccentColor;
+  color: AccentColor;
+}
+
+.result-panel {
+  min-width: 0;
+  overflow: auto;
+}
+
+.graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.graph-controls select,
+.graph-controls button {
+  padding: 6px 10px;
+}
+
+.graph-canvas {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 20% 15%, color-mix(in srgb, AccentColor 8%, transparent), transparent 35%),
+    color-mix(in srgb, Canvas 98%, CanvasText 2%);
+}
+
+.node-inspector {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 10px;
+}
+
+.node-inspector h3 {
+  margin: 0 0 8px;
+}
+
+.result-panel table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.result-panel th,
+.result-panel td {
+  padding: 8px 10px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.result-panel figure {
+  margin: 0 0 16px;
+}
+
+.result-panel svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.result-panel figcaption,
+.truncation-marker {
+  color: color-mix(in srgb, CanvasText 70%, transparent);
+  font-size: 12px;
+}
+
+[role="alert"] {
+  color: #b42318;
+}
+
+@media (max-width: 520px) {
+  .graph-canvas {
+    min-height: 300px;
+  }
+
+}
+
+.gql-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, Canvas 92%, CanvasText 8%);
+}
+.gql-line pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.query-result .copy-gql {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  min-height: 28px;
+  margin: 5px;
+  padding: 5px;
+  border: 0;
+  background: transparent;
+  opacity: .7;
+}
+.query-result .copy-gql:hover { opacity: 1; background: color-mix(in srgb, CanvasText 10%, transparent); }
+.query-result button:focus-visible { outline: 2px solid AccentColor; outline-offset: 2px; }
+.profile-table td:first-child { white-space: pre; }
+ .element-properties { white-space: nowrap; overflow-x: auto; padding: 6px 0; font: 13px/1.7 ui-monospace, monospace; }
+.copy-feedback { align-self: center; font-size: 12px; color: #16803c; }
+.node-inspector h3 { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }

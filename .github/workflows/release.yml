@@ -1,18 +1,28 @@
-name: release
+name: Build and release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
     permissions:
       contents: read
     runs-on: macos-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      title: ${{ steps.version.outputs.title }}
     steps:
       - name: Checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -22,44 +32,56 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install UI dependencies
+        run: npm ci
+        working-directory: ui
+      - name: Run UI tests and typecheck
+        run: |
+          npm test
+          npm run typecheck
+        working-directory: ui
+      - name: Build UI and verify committed artifact
+        run: |
+          npm run build
+          git diff --exit-code -- ../src/nebula_mcp/ui/query-result.html
+        working-directory: ui
       - name: Install development dependencies
         run: python -m pip install '.[dev]'
       - name: Run test suite
-        run: python -m pytest -q
-      - name: Run Ruff including installer template
-        run: python -m ruff check --extension in:python .
-      - name: Run strict mypy
-        run: python -m mypy src
-      - name: Build distributions
-        run: python -m build
-      - name: Prepare and validate release assets
         run: |
-          python scripts/prepare_release.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --tag "$GITHUB_REF_NAME" \
-            --dist dist
-          installer_version="$(python dist/install.py --version)"
-          test "$installer_version" = "${GITHUB_REF_NAME#v}"
+          python -m pytest -q
+          python -m ruff check --extension in:python .
+          python -m mypy src
+      - name: Stamp reproducible release version
+        id: version
+        run: python scripts/release_version.py --write
+      - name: Build distributions and prepare Release assets
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python -m build
+          python scripts/prepare_release.py --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --dist dist
+          test "$(python dist/install.py --version)" = "$PACKAGE_VERSION"
           (cd dist && shasum -a 256 -c SHA256SUMS)
-      - name: Validate clean wheel and stdio
-        run: |
           python -m venv "$RUNNER_TEMP/nebula-wheel"
           "$RUNNER_TEMP/nebula-wheel/bin/python" -m pip install dist/*.whl
           "$RUNNER_TEMP/nebula-wheel/bin/python" -m pip check
-          "$RUNNER_TEMP/nebula-wheel/bin/python" -c 'import nebula_mcp'
-          wheel_version="$("$RUNNER_TEMP/nebula-wheel/bin/python" -m nebula_mcp --version)"
-          test "$wheel_version" = "nebula-mcp ${GITHUB_REF_NAME#v}"
-          NEBULA_WHEEL_PYTHON="$RUNNER_TEMP/nebula-wheel/bin/python" \
-            python -m pytest tests/protocol/test_stdio.py -q
-      - name: Run installer integration tests
-        run: python -m pytest tests/integration/test_installer_cli.py -q
-      - name: Upload verified release bundle
+          test "$("$RUNNER_TEMP/nebula-wheel/bin/python" -m nebula_mcp --version)" = "nebula-mcp $PACKAGE_VERSION"
+          NEBULA_WHEEL_PYTHON="$RUNNER_TEMP/nebula-wheel/bin/python" python -m pytest tests/protocol/test_stdio.py -q
+          python scripts/publish_release.py --verify-only --dist dist --version "$PACKAGE_VERSION" --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
+      - name: Upload test artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-assets
           path: dist/
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
   installer-compatibility:
     permissions:
@@ -83,69 +105,31 @@ jobs:
       - name: Run installer unit and integration compatibility
         run: python -m pytest tests/unit/test_installer.py tests/integration/test_installer_cli.py -q
       - name: Run rendered installer smoke
-        run: python -m pytest tests/unit/test_release_assets.py -q -k rendered_installer_executes_version_smoke
+        run: python -m pytest tests/unit/test_release_assets.py tests/unit/test_calendar_release.py -q
 
   publish:
     needs: [validate, installer-compatibility]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     permissions:
       contents: write
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
+      - name: Checkout publication script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
       - name: Download verified release bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-assets
           path: dist
-      - name: Verify tag and publish exact assets
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          wheel="dist/nebula_mcp-${version}-py3-none-any.whl"
-          sdist="dist/nebula_mcp-${version}.tar.gz"
-
-          entry_count="$(find dist -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
-          test "$entry_count" = "5"
-          release_files="$(find dist -mindepth 1 -maxdepth 1 -type f -print | LC_ALL=C sort)"
-          expected_files="$(
-            printf '%s\n' \
-              dist/RELEASE_NOTES.md \
-              dist/SHA256SUMS \
-              dist/install.py \
-              "$sdist" \
-              "$wheel" | LC_ALL=C sort
-          )"
-          test "$release_files" = "$expected_files"
-
-          manifest_files="$(awk '{print $2}' dist/SHA256SUMS | LC_ALL=C sort)"
-          expected_manifest="$(
-            printf '%s\n' install.py "$(basename "$sdist")" "$(basename "$wheel")" \
-              | LC_ALL=C sort
-          )"
-          test "$manifest_files" = "$expected_manifest"
-          (cd dist && shasum -a 256 -c SHA256SUMS)
-
-          ref_target="$(
-            gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" \
-              --jq '.object.type, .object.sha'
-          )"
-          target_type="$(printf '%s\n' "$ref_target" | sed -n '1p')"
-          target_sha="$(printf '%s\n' "$ref_target" | sed -n '2p')"
-          while [ "$target_type" = "tag" ]; do
-            tag_target="$(
-              gh api "repos/$GITHUB_REPOSITORY/git/tags/$target_sha" \
-                --jq '.object.type, .object.sha'
-            )"
-            target_type="$(printf '%s\n' "$tag_target" | sed -n '1p')"
-            target_sha="$(printf '%s\n' "$tag_target" | sed -n '2p')"
-          done
-          test "$target_type" = "commit"
-          test "$target_sha" = "$GITHUB_SHA"
-
-          gh release create "$GITHUB_REF_NAME" \
-            "$wheel" "$sdist" dist/install.py dist/SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --title "nebula-mcp $GITHUB_REF_NAME" \
-            --notes-file dist/RELEASE_NOTES.md
+      - name: Verify and publish exact assets
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
+        run: python scripts/publish_release.py --dist dist --version "$PACKAGE_VERSION" --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"

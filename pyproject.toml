@@ -1,6 +1,6 @@
 [project]
 name = "nebula-mcp"
-version = "0.1.4"
+version = "0.5.2"
 description = "Local MCP server for YueShu 5.3 graph databases"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,11 +32,10 @@ build-backend = "hatchling.build"
 packages = ["src/nebula_mcp"]
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-  "/findings.md",
-  "/progress.md",
-  "/task_plan.md",
-  "/docs/superpowers/",
+include = [
+  "/src",
+  "/README.md",
+  "/pyproject.toml",
 ]
 
 [tool.pytest.ini_options]

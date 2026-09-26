@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PolicyIssue(BaseModel):
@@ -276,6 +276,28 @@ class QueryInput(BaseModel):
     render_mode: Literal["spec"] = "spec"
 
 
+class ExpandNodeInput(BaseModel):
+    """Bounded inputs for fixed-shape one-hop graph expansion."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    graph: str = Field(min_length=1, max_length=512)
+    element_id: str = Field(
+        min_length=1,
+        max_length=20,
+        pattern=r"^(?:0|-?[1-9][0-9]*)$",
+    )
+    max_rows: int | None = Field(None, ge=1, le=10_000)
+
+    @field_validator("element_id")
+    @classmethod
+    def require_int64_range(cls, value: str) -> str:
+        parsed = int(value)
+        if parsed < -(2**63) or parsed > 2**63 - 1:
+            raise ValueError("element_id must be within the signed INT64 range")
+        return value
+
+
 class MutationInput(BaseModel):
     """Explicitly confirmed mutation execution request."""
 
@@ -362,6 +384,10 @@ class QueryMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     statement: str
+    executed_statement: str
+    display_statement: str | None = None
+    environment: str | None = None
+    connection_id: str | None = None
     graph: str | None
     read_only: bool = True
     validation: ValidationEvidence
@@ -379,6 +405,14 @@ class ExplanationContext(BaseModel):
     suggested_focus: list[str] = Field(default_factory=list)
 
 
+class ProfileOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    latency_us: int | None = None
+    operators: list[dict[str, Any]] = Field(default_factory=list)
+    truncated: bool = False
+
+
 class QueryOutput(BaseModel):
     """Unified read-only query output."""
 
@@ -386,6 +420,7 @@ class QueryOutput(BaseModel):
 
     status: QueryStatus
     query: QueryMetadata
+    profile: ProfileOutput | None = None
     table: TableResult
     graph: GraphSpec | None = Field(
         None,
@@ -412,6 +447,61 @@ class QueryOutput(BaseModel):
     truncation: TruncationInfo
 
 
+class QueryPresentation(BaseModel):
+    """Any query result and client-authored explanation for the MCP App."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result: QueryOutput
+    explanation: str = Field(
+        min_length=1, max_length=100_000,
+        description="Explain result meaning and insights with concrete entities, directions, values "
+        "and comparisons. Distinguish facts from hypotheses and state sampling/missing-data limits. "
+        "Do not merely repeat row or path counts.",
+    )
+
+
+class GraphSelectionOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    graph: str
+    session_statement: str
+    result: QueryOutput | None = None
+
+
+class GraphPresentation(QueryPresentation):
+    """Non-empty graph result and client-authored explanation for the MCP App."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result: QueryOutput
+    explanation: str = Field(
+        min_length=1, max_length=100_000,
+        description="Explain result meaning and insights with concrete entities, directions, values "
+        "and comparisons. Distinguish facts from hypotheses and state sampling/missing-data limits. "
+        "Do not merely repeat row or path counts.",
+    )
+
+    @model_validator(mode="after")
+    def require_non_empty_graph(self) -> GraphPresentation:
+        graph = self.result.graph
+        if graph is None or not (graph.elements.nodes or graph.elements.edges):
+            raise ValueError("nebula_render_graph requires a non-empty graph")
+        return self
+
+
+class GraphExpansionOutput(BaseModel):
+    """Bounded graph delta returned by one-hop expansion."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: QueryStatus
+    query: QueryMetadata
+    profile: ProfileOutput | None = None
+    graph: GraphSpec
+    truncation: TruncationInfo
+
+
 class MutationOutput(BaseModel):
     """Mutation status without query visualization artifacts."""
 
@@ -421,3 +511,10 @@ class MutationOutput(BaseModel):
     affected_nodes: int
     affected_edges: int
     warnings: tuple[str, ...] = ()
+
+
+class EnvironmentsOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    active: str | None
+    environments: list[str]

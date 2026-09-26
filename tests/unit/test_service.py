@@ -8,6 +8,7 @@ import pytest
 from nebula_mcp.config import Settings
 from nebula_mcp.errors import NebulaMCPError
 from nebula_mcp.models import (
+    ExpandNodeInput,
     GraphSchemaInput,
     ListGraphsInput,
     MutationInput,
@@ -39,6 +40,8 @@ class FakeGateway:
         self.statements: list[str] = []
 
     async def execute(self, statement: str) -> FakeResult:
+        if statement.startswith("DESCRIBE GRAPH ") and not statement.startswith("DESCRIBE GRAPH TYPE "):
+            return FakeResult([])
         self.statements.append(statement)
         return self.results.pop(0)
 
@@ -97,7 +100,11 @@ async def test_query_builds_requested_specs_and_factual_context(settings: Settin
         QueryInput(statement="RETURN 'A' AS sector, 1.0 AS score", graph="demo")
     )
 
-    assert gateway.statements == ["USE demo\nRETURN 'A' AS sector, 1.0 AS score"]
+    assert gateway.statements == ["PROFILE USE demo\nRETURN 'A' AS sector, 1.0 AS score"]
+    assert output.query.statement == "RETURN 'A' AS sector, 1.0 AS score"
+    assert output.query.display_statement == (
+        "USE demo\nRETURN 'A' AS sector, 1.0 AS score"
+    )
     assert output.table.returned_row_count == 2
     assert output.graph is not None
     assert output.graph.format == "cytoscape-elements-v1"
@@ -148,9 +155,72 @@ async def test_explicit_use_supplies_the_result_graph_context(settings: Settings
 
     output = await service.execute_query(QueryInput(statement="USE other RETURN 1"))
 
+    assert output.query.statement == "USE other RETURN 1"
+    assert output.query.display_statement == "USE other RETURN 1"
     assert output.query.graph == "other"
     assert output.graph is not None
     assert output.graph.graph == "other"
+
+
+@pytest.mark.anyio
+async def test_expand_node_executes_fixed_read_only_query(settings: Settings) -> None:
+    source = {
+        "id": 289166301065117700,
+        "type": "Corp",
+        "labels": ["Corporation"],
+        "properties": {"name": "A"},
+    }
+    neighbor = {
+        "id": 289166301065117701,
+        "type": "Corp",
+        "labels": ["Corporation"],
+        "properties": {"name": "B"},
+    }
+    edge = {
+        "src_id": source["id"],
+        "dst_id": neighbor["id"],
+        "rank": 0,
+        "type": "Invest",
+        "labels": ["INVEST"],
+        "properties": {"weight": 0.8},
+        "direction": "OUTGOING",
+    }
+    gateway = FakeGateway(
+        [FakeResult([{"source": source, "edge": edge, "neighbor": neighbor}])]
+    )
+    service = NebulaService(settings, gateway)
+
+    output = await service.expand_node(
+        ExpandNodeInput(graph="demo", element_id=str(source["id"]), max_rows=25)
+    )
+
+    expected = (
+        "USE demo\n"
+        "MATCH (source WHERE element_id(source) = 289166301065117700)-[edge]-(neighbor)\n"
+        "RETURN source, edge, neighbor\n"
+        "LIMIT 25"
+    )
+    assert gateway.statements == [f"PROFILE {expected}"]
+    assert output.query.statement == expected
+    assert output.query.display_statement == expected
+    assert output.query.read_only is True
+    assert output.graph.format == "cytoscape-elements-v1"
+    assert len(output.graph.elements.nodes) == 2
+    assert len(output.graph.elements.edges) == 1
+
+
+@pytest.mark.anyio
+async def test_expand_node_caps_rows_to_server_limit(settings: Settings) -> None:
+    gateway = FakeGateway([FakeResult([])])
+    service = NebulaService(settings, gateway)
+
+    output = await service.expand_node(
+        ExpandNodeInput(graph="#scratch", element_id="1", max_rows=10_000)
+    )
+
+    assert gateway.statements[0].endswith(f"LIMIT {settings.max_rows}")
+    assert output.graph.elements.nodes == []
+    assert output.graph.elements.edges == []
 
 
 @pytest.mark.anyio
@@ -274,3 +344,45 @@ async def test_validate_explain_never_executes_the_original_statement(settings: 
     assert output.evidence.explain_checked is True
     assert output.evidence.executed is False
     assert output.explain is not None
+
+
+@pytest.mark.anyio
+async def test_query_resolves_schema_keys_and_preserves_wire_statement(settings: Settings) -> None:
+    from tests.unit.test_result_parser import NODE_A
+
+    class KeyGateway(FakeGateway):
+        async def execute(self, statement):
+            self.statements.append(statement)
+            if statement.startswith("DESCRIBE GRAPH TYPE"):
+                return FakeResult([{"entity_type": "Node", "type_name": NODE_A["type"],
+                                    "primary_key/multiedge_key": ["name"]}])
+            if statement.startswith("DESCRIBE GRAPH"):
+                return FakeResult([{"graph_type_name": "demo_type"}])
+            return FakeResult([{"n": NODE_A}])
+
+    gateway = KeyGateway()
+    output = await NebulaService(settings, gateway).execute_query(
+        QueryInput(statement="USE /other/demo MATCH (n) RETURN n LIMIT 1")
+    )
+    assert gateway.statements[-1] == "DESCRIBE GRAPH TYPE /other/`demo_type`"
+    assert output.graph.elements.nodes[0].data["primary_key"] == {"name": NODE_A["properties"]["name"]}
+    assert output.query.display_statement == "USE /other/demo MATCH (n) RETURN n LIMIT 1"
+    assert len(output.explanation_context.suggested_focus) >= 4
+
+
+@pytest.mark.anyio
+async def test_schema_denied_keeps_query_result_with_unknown_key(settings: Settings) -> None:
+    from tests.unit.test_result_parser import NODE_A
+
+    class DeniedGateway(FakeGateway):
+        async def execute(self, statement):
+            if statement.startswith('DESCRIBE'):
+                raise NebulaMCPError(category='database_error', message='Not permitted')
+            return FakeResult([{'n': NODE_A}])
+
+    output = await NebulaService(settings, DeniedGateway()).execute_query(
+        QueryInput(statement='USE demo MATCH (n) RETURN n LIMIT 1')
+    )
+    assert output.status.ok
+    assert output.graph.elements.nodes[0].data['primary_key'] is None
+    assert output.table.returned_row_count == 1

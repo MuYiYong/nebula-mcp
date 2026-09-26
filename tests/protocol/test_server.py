@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
+from copy import deepcopy
 from typing import Any, ClassVar
 
 import pytest
@@ -76,19 +77,91 @@ async def test_server_exposes_complete_prefixed_tool_set(service: NebulaService)
 
     async with Client(server) as client:
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        server_version = client.server_info.version
 
     assert set(tools) == {
+        "nebula_list_environments",
+        "nebula_switch_environment",
         "nebula_test_connection",
         "nebula_list_graphs",
         "nebula_get_graph_schema",
         "nebula_validate_gql",
         "nebula_execute_query",
         "nebula_execute_mutation",
+        "nebula_render_graph",
+        "nebula_render_result",
+        "nebula_configure_connection",
+        "nebula_select_graph",
     }
+    assert server_version == "0.5.2"
     assert tools["nebula_execute_query"].annotations.read_only_hint is True
     assert tools["nebula_execute_query"].annotations.destructive_hint is False
     assert tools["nebula_execute_mutation"].annotations.destructive_hint is True
+    assert "nebula_expand_node" not in tools
+    assert tools["nebula_render_graph"].meta == {
+        "ui": {"resourceUri": "ui://nebula/query-result.html"}
+    }
     assert all(tool.output_schema is not None for tool in tools.values())
+
+
+@pytest.mark.anyio
+async def test_query_result_ui_resource_is_registered(service: NebulaService) -> None:
+    server = create_server(service=service)
+
+    async with Client(server) as client:
+        resources = await client.list_resources()
+        resource = await client.read_resource("ui://nebula/query-result.html")
+
+    listed = {str(item.uri): item for item in resources.resources}
+    assert listed["ui://nebula/query-result.html"].mime_type == "text/html;profile=mcp-app"
+    assert listed["ui://nebula/query-result.html"].meta == {"ui": {"prefersBorder": True}}
+    assert resource.contents[0].mime_type == "text/html;profile=mcp-app"
+    assert "nebula_expand_node" not in resource.contents[0].text
+
+
+@pytest.mark.anyio
+async def test_render_graph_returns_identical_text_and_structured_content(
+    service: NebulaService,
+) -> None:
+    server = create_server(service=service)
+
+    async with Client(server) as client:
+        query = await client.call_tool("nebula_execute_query", {"statement": "RETURN 1"})
+        payload = deepcopy(query.structured_content)
+        payload["graph"]["graph"] = "demo"
+        payload["graph"]["elements"]["nodes"] = [
+            {
+                "data": {
+                    "id": "node:9223372036854775807",
+                    "element_id": "9223372036854775807",
+                    "graph": "demo",
+                    "properties": {"name": "Alice"},
+                }
+            }
+        ]
+        rendered = await client.call_tool(
+            "nebula_render_graph",
+            {"result": payload, "explanation": "查询返回 Alice 节点。"},
+        )
+
+    assert rendered.is_error is False
+    assert json.loads(rendered.content[0].text) == rendered.structured_content
+    assert rendered.structured_content["result"] == payload
+    assert rendered.structured_content["explanation"] == "查询返回 Alice 节点。"
+
+
+@pytest.mark.anyio
+async def test_render_graph_rejects_empty_graph(service: NebulaService) -> None:
+    server = create_server(service=service)
+
+    async with Client(server) as client:
+        query = await client.call_tool("nebula_execute_query", {"statement": "RETURN 1"})
+        rendered = await client.call_tool(
+            "nebula_render_graph",
+            {"result": query.structured_content, "explanation": "查询返回一行。"},
+        )
+
+    assert rendered.is_error is True
 
 
 @pytest.mark.anyio
@@ -106,6 +179,14 @@ async def test_query_presentation_contract_is_delivered_to_mcp_clients(
     assert "present every enabled result component together" in normalized_instructions
     assert "render every non-empty vega-lite-v5 chart" in normalized_instructions
     assert "write a human-readable explanation" in normalized_instructions
+    for required in (
+        "do not rewrite explicit GQL merely to create a graph",
+        "natural-language scalar request",
+        "project Node, Edge, or Path",
+        "Show GQL from query.display_statement",
+        "call nebula_render_graph only for a non-empty graph",
+    ):
+        assert required.lower() in normalized_instructions.lower()
 
     description = query_tool.description or ""
     assert "A table does not replace charts or the explanation" in description
@@ -129,6 +210,8 @@ async def test_successful_tool_returns_valid_structured_content(service: NebulaS
 
     assert result.is_error is False
     assert result.structured_content["status"]["ok"] is True
+    assert result.structured_content["query"]["statement"] == "RETURN 1"
+    assert result.structured_content["query"]["display_statement"] == "RETURN 1"
     assert result.structured_content["graph"]["format"] == "cytoscape-elements-v1"
     assert result.structured_content["graph"]["elements"]["nodes"] == []
     assert result.structured_content["charts"][0]["format"] == "vega-lite-v5"
@@ -162,7 +245,7 @@ async def test_unconfigured_server_initializes_and_returns_variable_names(
         result = await client.call_tool("nebula_test_connection", {})
         resource = await client.read_resource("nebula://connection")
 
-    assert len(tools.tools) == 6
+    assert len(tools.tools) == 12
     assert result.is_error is True
     error = result.structured_content["error"]
     assert error["code"] == "CONFIGURATION_REQUIRED"
@@ -223,7 +306,7 @@ async def test_connection_failure_does_not_abort_initialization(
             )
 
         def close(self) -> None:
-            raise AssertionError("failed gateway must not be closed as ready")
+            pass  # Startup failures also release partially allocated resources.
 
     monkeypatch.setattr(server_module, "DatabaseGateway", FailingGateway)
     async with Client(create_server(settings=settings)) as client:
@@ -247,7 +330,10 @@ async def test_connection_and_schema_resources_are_readable(service: NebulaServi
             "nebula://schema/default_schema/demo_type"
         )
 
-    assert [str(item.uri) for item in resources.resources] == ["nebula://connection"]
+    assert [str(item.uri) for item in resources.resources] == [
+        "nebula://connection",
+        "ui://nebula/query-result.html",
+    ]
     assert [item.uri_template for item in templates.resource_templates] == [
         "nebula://schema/{schema}/{graph_type}"
     ]

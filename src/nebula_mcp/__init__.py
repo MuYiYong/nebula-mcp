@@ -1,3 +1,3 @@
 """Local MCP server for YueShu graph databases."""
 
-__version__ = "0.1.4"
+__version__ = "0.5.2"

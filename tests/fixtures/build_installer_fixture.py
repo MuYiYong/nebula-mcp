@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import zipfile
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -42,6 +43,37 @@ def build_fixture_wheel(directory: Path, version: str) -> Path:
         for name, content in files.items():
             archive.writestr(name, content)
     return wheel
+
+
+def build_fixture_plugin_archive(directory: Path, version: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "name": "nebula-mcp",
+        "version": version,
+        "description": "fixture",
+        "author": {"name": "fixture"},
+        "license": "UNLICENSED",
+        "mcpServers": "./.mcp.json",
+        "interface": {
+            "displayName": "Nebula MCP",
+            "shortDescription": "fixture",
+            "longDescription": "fixture",
+            "developerName": "fixture",
+            "category": "Developer Tools",
+            "capabilities": ["MCP"],
+            "defaultPrompt": ["Test connection"],
+        },
+    }
+    mapping = {"mcpServers": {"nebula": {"command": "nebula-mcp", "args": []}}}
+    archive_path = directory / f"nebula-mcp-plugin-{version}.zip"
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            ".codex-plugin/plugin.json",
+            json.dumps(manifest, separators=(",", ":")),
+        )
+        archive.writestr(".mcp.json", json.dumps(mapping, separators=(",", ":")))
+        archive.writestr("README.md", "# Fixture plugin\n")
+    return archive_path
 
 
 def write_checksum_manifest(directory: Path, assets: Sequence[Path]) -> Path:

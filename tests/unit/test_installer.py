@@ -16,6 +16,7 @@ from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+from zipfile import ZipFile, ZipInfo
 
 import pytest
 
@@ -302,7 +303,86 @@ def test_parser_exposes_only_supported_installer_options() -> None:
         "--uninstall",
         "--yes",
         "--replace-registration",
+        "--mode",
+        "--migrate-to-plugin",
+        "--configure",
+        "--config-status",
+        "--clear-config",
+        "--assets",
     }
+    assert installer.build_parser().parse_args([]).mode == "plugin"
+    assert installer.build_parser().parse_args(["--mode", "mcp"]).mode == "mcp"
+
+
+def test_extract_and_render_managed_plugin_use_exact_launcher_paths(tmp_path: Path) -> None:
+    installer = load_installer_template()
+    archive = tmp_path / "plugin.zip"
+    with ZipFile(archive, "w") as output:
+        output.writestr(
+            ".codex-plugin/plugin.json",
+            json.dumps(
+                {
+                    "name": "nebula-mcp",
+                    "version": "0.2.0",
+                    "mcpServers": "./.mcp.json",
+                }
+            ),
+        )
+        output.writestr(
+            ".mcp.json",
+            json.dumps(
+                {"mcpServers": {"nebula": {"command": "nebula-mcp", "args": []}}}
+            ),
+        )
+        output.writestr("README.md", "# Plugin\n")
+
+    plugin = installer.extract_plugin_archive(archive, tmp_path / "staging")
+    system_python = Path(sys.executable).resolve()
+    launcher = (tmp_path / "managed" / "launcher.py").resolve()
+    installer.render_managed_mcp_config(plugin, system_python, launcher)
+
+    assert json.loads((plugin / ".mcp.json").read_text(encoding="utf-8")) == {
+        "mcpServers": {
+            "nebula": {
+                "command": str(system_python),
+                "args": [str(launcher)],
+            }
+        }
+    }
+    serialized = "\n".join(
+        path.read_text(errors="ignore") for path in plugin.rglob("*") if path.is_file()
+    )
+    assert "NEBULA_PASSWORD" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("member", "symlink"),
+    [
+        ("../escape", False),
+        ("/absolute", False),
+        ("unexpected.txt", False),
+        ("README.md", True),
+    ],
+)
+def test_extract_plugin_rejects_unsafe_members_before_writing(
+    tmp_path: Path,
+    member: str,
+    symlink: bool,
+) -> None:
+    installer = load_installer_template()
+    archive = tmp_path / "unsafe.zip"
+    with ZipFile(archive, "w") as output:
+        info = ZipInfo(member)
+        if symlink:
+            info.create_system = 3
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        output.writestr(info, "payload")
+
+    staging = tmp_path / "staging"
+    with pytest.raises(installer.InstallerError, match="plugin archive"):
+        installer.extract_plugin_archive(archive, staging)
+
+    assert not staging.exists() or list(staging.rglob("*")) == []
 
 
 def test_report_error_emits_only_actionable_fields(capsys: pytest.CaptureFixture[str]) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from threading import RLock
 from typing import Any, Protocol, cast
 
 import anyio
@@ -56,6 +57,8 @@ class DatabaseGateway:
         self._settings = settings
         self._pool_factory = pool_factory or _default_pool_factory
         self._pool: PoolLike | None = None
+        self._client: ClientLike | None = None
+        self._session_lock = RLock()
 
     def open(self) -> None:
         if self._pool is not None:
@@ -80,9 +83,15 @@ class DatabaseGateway:
             raise _safe_database_error(exc, operation="connect") from None
 
     def close(self) -> None:
-        pool, self._pool = self._pool, None
-        if pool is not None:
-            pool.close()
+        with self._session_lock:
+            pool, self._pool = self._pool, None
+            client, self._client = self._client, None
+            if pool is not None:
+                try:
+                    if client is not None:
+                        pool.return_client(client)
+                finally:
+                    pool.close()
 
     def _require_pool(self) -> PoolLike:
         if self._pool is None:
@@ -93,28 +102,43 @@ class DatabaseGateway:
             )
         return self._pool
 
-    def _execute_sync(self, statement: str) -> ResultLike:
+    def _require_client(self) -> ClientLike:
         pool = self._require_pool()
-        client = pool.get_client()
-        try:
-            return client.execute(statement)
-        except Exception as exc:  # noqa: BLE001 - redact all SDK query failures at boundary
-            raise _safe_database_error(exc, operation="query") from None
-        finally:
-            pool.return_client(client)
+        if self._client is None:
+            self._client = pool.get_client()
+        return self._client
+
+    def _execute_sync(self, statement: str) -> ResultLike:
+        with self._session_lock:
+            try:
+                return self._require_client().execute(statement)
+            except NebulaMCPError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - redact SDK failures
+                raise _safe_database_error(exc, operation="query") from None
 
     async def execute(self, statement: str) -> ResultLike:
         return await anyio.to_thread.run_sync(self._execute_sync, statement)
 
     def _version_sync(self) -> str:
-        pool = self._require_pool()
-        client = pool.get_client()
-        try:
-            return client.get_version()
-        except Exception as exc:  # noqa: BLE001 - redact all SDK metadata failures at boundary
-            raise _safe_database_error(exc, operation="version") from None
-        finally:
-            pool.return_client(client)
+        with self._session_lock:
+            try:
+                client = self._require_client()
+                # SDK get_version() is cached. Check the retained session itself
+                # without borrowing a new client or silently reconnecting.
+                health = client.execute("RETURN 1")
+                if health.status_code != "00000":
+                    raise NebulaMCPError(
+                        category="connection_error", database_code=health.status_code,
+                        message="Database session health check failed",
+                        suggestion="Check database availability and explicitly reconfigure "
+                        "the connection if the session has expired",
+                    )
+                return client.get_version()
+            except NebulaMCPError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - redact SDK failures
+                raise _safe_database_error(exc, operation="version") from None
 
     async def version(self) -> str:
         return await anyio.to_thread.run_sync(self._version_sync)

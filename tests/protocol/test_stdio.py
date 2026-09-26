@@ -24,7 +24,7 @@ async def test_stdio_subprocess_initializes_lists_and_calls_tools() -> None:
         tools = await client.list_tools()
         result = await client.call_tool("nebula_test_connection", {})
 
-    assert len(tools.tools) == 6
+    assert len(tools.tools) == 12
     assert result.is_error is False
     assert result.structured_content["version"] == "5.3.0"
 
@@ -43,6 +43,6 @@ async def test_production_stdio_subprocess_initializes_without_configuration() -
         tools = await client.list_tools()
         result = await client.call_tool("nebula_test_connection", {})
 
-    assert len(tools.tools) == 6
+    assert len(tools.tools) == 12
     assert result.is_error is True
     assert result.structured_content["error"]["code"] == "CONFIGURATION_REQUIRED"

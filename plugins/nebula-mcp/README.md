@@ -1,0 +1,26 @@
+# Nebula MCP Codex Plugin
+
+这个插件把本地 `nebula-mcp` Server 接入 Codex，并提供悦数 5.3 图查询、标准化图表结果和交互式图视图。数据库连接仍由本地 Server 发起，插件不包含远端数据库凭据。
+
+仓库中的通用配置使用已位于 `PATH` 的命令：
+
+```json
+{
+  "mcpServers": {
+    "nebula": {
+      "command": "nebula-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+正式 Release 的安装器会把受管插件副本改写为安装器生成的绝对 launcher 命令，因此普通用户不需要自行维护 Python 或脚本路径。
+
+安装后在对话中说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。连接信息仅在 MCP 进程内保存，查询和选图复用同一个数据库 session。密码不会返回，但工具参数可能由宿主留存；需要本地无回显密码输入或持久化时，运行发行安装器 `python3 install.py --configure`。本地 `config.toml` 明文保存连接信息（包括 `NEBULA_PASSWORD`），不要共享文件，也不要提交真实值。默认只读。
+
+之后直接说“使用 Nebula MCP，执行 MATCH (n) RETURN n LIMIT 20”。缺图时先提示选择，用户给出图名后执行 `SESSION SET GRAPH` 并自动续跑原查询。
+
+查询成功后，支持 MCP Apps 的客户端可以显示图、表格、Vega-Lite 图表、事实解释和实际执行 GQL；不支持 UI 的客户端仍可读取相同的 structured content。
+
+连接配置优先使用 Codex Desktop 的“设置 → 插件 → MCP → 服务器 → nebula 齿轮 → 环境变量”，填写 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD`，保存并重启 MCP。仅有“来自插件”条目时没有环境变量编辑入口，需要同名独立 MCP 注册；详见项目 README 的“配置 Codex Desktop”。

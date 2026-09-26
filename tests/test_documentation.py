@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 
@@ -47,30 +48,22 @@ def test_readme_documents_release_install_desktop_journey_and_security() -> None
     assert "GitHub Release" in installation
     assert "`install.py`" in installation
     assert "python3 install.py" in installation
-    assert [
-        installation.index(fragment)
-        for fragment in ("GitHub Release", "`install.py`", "python3 install.py")
-    ] == sorted(
-        installation.index(fragment)
-        for fragment in ("GitHub Release", "`install.py`", "python3 install.py")
-    )
+    assert "python3 install.py --assets ." in installation
+    assert "SHA256SUMS" in installation
     assert "-e '.[dev]'" not in installation
     assert ".venv/bin/python -m build" not in installation
     assert "CONFIGURATION_REQUIRED" in installation
     assert text.index("python3 install.py") < text.index("### 配置 Codex Desktop")
 
-    journey_steps = (
-        "Settings > MCP servers > nebula",
-        "NEBULA_ADDRESSES",
-        "NEBULA_USERNAME",
-        "NEBULA_PASSWORD",
-        "NEBULA_CONNECT_TIMEOUT_MS=30000",
-        "NEBULA_ALLOW_MUTATIONS=false",
-        "保存设置并重启 MCP",
+    for step in (
+        "nebula_configure_connection", "同一个数据库 session", "无需重启",
+        "环境变量（Environment variables）", "nebula 右侧齿轮", "来自插件",
+        "--configure", "--config-status", "--clear-config", "无回显密码输入",
+        "NEBULA_ADDRESSES", "NEBULA_USERNAME", "NEBULA_PASSWORD",
+        "NEBULA_CONNECT_TIMEOUT_MS=30000", "NEBULA_ALLOW_MUTATIONS=false",
         "nebula_test_connection",
-    )
-    positions = [desktop.index(step) for step in journey_steps]
-    assert positions == sorted(positions)
+    ):
+        assert step in desktop
     for disclosure in (
         "config.toml",
         "明文",
@@ -102,6 +95,23 @@ def test_readme_documents_release_lifecycle_and_developer_boundary() -> None:
     assert text.count(wheel_build) == 1
 
 
+def test_readme_documents_plugin_default_migration_and_mcp_fallback() -> None:
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    installation = markdown_section(text, "## 安装")
+    lifecycle = markdown_section(text, "### 升级、冲突与卸载")
+
+    for required in (
+        "默认使用 Codex plugin 模式",
+        "--mode mcp",
+        "--migrate-to-plugin",
+        "nebula-mcp@nebula-mcp-local",
+        "mcpServers",
+    ):
+        assert required in installation
+    assert "先移除插件，再移除本地 marketplace" in lifecycle
+    assert "失败时保留安装文件" in lifecycle
+
+
 def test_readme_documents_windows_powershell_lifecycle_and_acl_boundary() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     installation = markdown_section(text, "## 安装")
@@ -128,12 +138,12 @@ def test_readme_intro_describes_portable_local_codex_use() -> None:
     assert "macOS/Codex" not in intro
 
 
-def test_env_example_documents_desktop_only_configuration() -> None:
+def test_env_example_documents_configuration_options() -> None:
     text = (ROOT / ".env.example").read_text(encoding="utf-8")
     for required in (
         "不会被 Server 自动读取",
         "Release 安装后",
-        "Codex 桌面",
+        "MCP 内配置连接",
         "真实值不得提交",
         "NEBULA_ALLOW_MUTATIONS=false",
         "NEBULA_MAX_ROWS=100",
@@ -141,7 +151,7 @@ def test_env_example_documents_desktop_only_configuration() -> None:
         assert required in text
 
 
-def test_readme_documents_all_six_tools() -> None:
+def test_readme_documents_all_tools() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     tools = markdown_section(text, "## 工具")
     for tool_name in (
@@ -151,8 +161,68 @@ def test_readme_documents_all_six_tools() -> None:
         "nebula_validate_gql",
         "nebula_execute_query",
         "nebula_execute_mutation",
+        "nebula_render_graph",
+        "nebula_render_result",
+        "nebula_configure_connection",
+        "nebula_select_graph",
     ):
         assert tool_name in tools
+
+
+def test_readme_documents_graph_first_routing_and_exact_gql() -> None:
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    workflow = markdown_section(text, "## 推荐工作流")
+    results = markdown_section(text, "## 查询结果")
+
+    for required in (
+        "显式 GQL",
+        "不得为了生成图而改写",
+        "自然语言标量请求",
+        "Node、Edge 或 Path",
+        "nebula_render_graph",
+        "非空图",
+    ):
+        assert required in workflow
+    assert "query.executed_statement" in results
+    assert "实际执行 GQL" in results
+
+
+def test_evaluations_define_four_query_routing_workflows() -> None:
+    root = ElementTree.parse(ROOT / "evaluations" / "remote_readonly.xml").getroot()
+    cases = {item.attrib["id"]: item for item in root.findall("workflow_case")}
+
+    assert set(cases) == {
+        "explicit-gql-scalar",
+        "natural-language-graph",
+        "natural-language-aggregate",
+        "follow-up-query",
+    }
+    for item in cases.values():
+        sequence = item.findtext("expected_tool_sequence") or ""
+        invariant = item.findtext("final_answer_invariant") or ""
+        assert sequence.strip()
+        assert invariant.strip()
+        assert "NEBULA_PASSWORD" not in ElementTree.tostring(item, encoding="unicode")
+
+    assert "nebula_execute_query" in (
+        cases["explicit-gql-scalar"].findtext("expected_tool_sequence") or ""
+    )
+    assert "gql-query-generator" in (
+        cases["natural-language-graph"].findtext("expected_tool_sequence") or ""
+    )
+    assert "nebula_execute_query" in (
+        cases["follow-up-query"].findtext("expected_tool_sequence") or ""
+    )
+
+
+def test_plugin_readme_documents_generic_and_managed_commands() -> None:
+    text = (ROOT / "plugins" / "nebula-mcp" / "README.md").read_text(encoding="utf-8")
+
+    assert '"command": "nebula-mcp"' in text
+    assert "nebula_configure_connection" in text
+    assert "NEBULA_PASSWORD" in text
+    assert "不要提交" in text
+    assert "安装器" in text
 
 
 def test_cli_help_does_not_require_database_configuration() -> None:

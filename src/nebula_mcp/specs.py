@@ -19,14 +19,27 @@ from nebula_mcp.serialization import JsonValue
 _VEGA_LITE_V5_SCHEMA = "https://vega.github.io/schema/vega-lite/v5.json"
 
 
-def build_cytoscape_graph(parsed: ParsedResult) -> GraphSpec:
+def build_cytoscape_graph(
+    parsed: ParsedResult,
+    key_fields: Mapping[tuple[str, str | None], list[str]] | None = None,
+) -> GraphSpec:
     """Build a client-renderable Cytoscape elements specification."""
+
+    def keys(kind: str, name: str | None, properties: dict[str, Any]) -> dict[str, Any] | None:
+        fields = (key_fields or {}).get((kind, name))
+        return {field: properties.get(field) for field in fields} if fields else None
 
     nodes = [
         CytoscapeElement(
             data={
                 "id": node.key,
                 "raw_id": node.raw_id,
+                "primary_key": keys("node", node.type_name, node.properties),
+                "element_id": (
+                    str(node.raw_id)
+                    if isinstance(node.raw_id, int) and not isinstance(node.raw_id, bool)
+                    else None
+                ),
                 "graph": node.graph,
                 "type": node.type_name,
                 "labels": node.labels,
@@ -45,6 +58,7 @@ def build_cytoscape_graph(parsed: ParsedResult) -> GraphSpec:
                 "graph": edge.graph,
                 "type": edge.edge_type,
                 "rank": edge.rank,
+                "multiedge_key": keys("edge", edge.edge_type, edge.properties),
                 "labels": edge.labels,
                 "properties": edge.properties,
                 "direction": edge.direction,
@@ -54,10 +68,24 @@ def build_cytoscape_graph(parsed: ParsedResult) -> GraphSpec:
     ]
     return GraphSpec(
         graph=parsed.graph.graph,
-        elements=CytoscapeElements(nodes=nodes, edges=edges),
+        elements=CytoscapeElements(
+            nodes=[CytoscapeElement(data=_browser_safe(item.data)) for item in nodes],
+            edges=[CytoscapeElement(data=_browser_safe(item.data)) for item in edges],
+        ),
         paths=[path.model_dump(mode="json") for path in parsed.graph.paths],
         truncated=parsed.truncation.truncated,
     )
+
+
+def _browser_safe(value: Any) -> Any:
+    """Preserve exact graph integers across the JavaScript JSON boundary."""
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2**53 - 1:
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _browser_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_browser_safe(item) for item in value]
+    return value
 
 
 def _id_component(value: object) -> str:

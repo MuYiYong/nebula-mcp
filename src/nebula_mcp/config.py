@@ -202,3 +202,45 @@ def load_settings(
         return None, ConfigurationProblem(
             issues=(ConfigurationIssue(variable=variable, reason="invalid"),)
         )
+
+
+def load_environments(
+    env: Mapping[str, str] | None = None,
+) -> tuple[dict[str, Settings], str | None]:
+    """Load independent named environments, without inheriting another account's settings."""
+    import json
+    import re
+
+    from nebula_mcp.errors import NebulaMCPError
+
+    source = os.environ if env is None else env
+    raw = source.get("NEBULA_ENVIRONMENTS")
+    try:
+        active = source.get("NEBULA_ENVIRONMENT")
+        if active is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", active):
+            raise ValueError
+        if raw is None:
+            return {}, active
+        values = json.loads(raw)
+        if not isinstance(values, dict) or not values:
+            raise ValueError
+        environments = {}
+        for name, values_by_key in values.items():
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+                raise ValueError
+            if not isinstance(values_by_key, dict) or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in values_by_key.items()
+            ):
+                raise ValueError
+            environments[name] = Settings.from_env(values_by_key)
+        if active is None and len(environments) == 1:
+            active = next(iter(environments))
+        if active is not None and active not in environments:
+            raise ValueError
+        return environments, active
+    except (ValueError, TypeError):
+        raise NebulaMCPError(
+            category="configuration_error", code="INVALID_ENVIRONMENTS",
+            message="检查 NEBULA_ENVIRONMENTS JSON 和 NEBULA_ENVIRONMENT 名称；每套环境需独立配置。",
+        ) from None

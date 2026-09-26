@@ -12,7 +12,7 @@ from nebula_mcp.service import NebulaService
 RuntimeStatus = Literal["UNCONFIGURED", "CONNECT_FAILED", "READY"]
 
 
-@dataclass(frozen=True)
+@dataclass
 class RuntimeState:
     """The initialized MCP runtime, including safe startup failures."""
 
@@ -27,8 +27,8 @@ class RuntimeState:
             code="CONFIGURATION_REQUIRED",
             message="YueShu database configuration is required",
             suggestion=(
-                "Set the listed variables in Codex Desktop Settings > MCP servers > "
-                "nebula, save, and restart the MCP server"
+                "Call nebula_configure_connection with the connection settings; "
+                "or use installer --configure for local no-echo password entry"
             ),
             variables=problem.variable_names,
         )

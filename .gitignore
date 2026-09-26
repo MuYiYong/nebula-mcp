@@ -15,3 +15,5 @@ dist/
 /progress.md
 /task_plan.md
 /docs/superpowers/
+
+ui/node_modules/

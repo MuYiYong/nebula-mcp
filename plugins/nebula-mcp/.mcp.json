@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "nebula": {
+      "command": "nebula-mcp",
+      "args": []
+    }
+  }
+}

@@ -46,9 +46,9 @@ def test_calendar_plugin_can_be_packaged(tmp_path: Path) -> None:
     shutil.copytree(prepare_release.ROOT / 'plugins/nebula-mcp', plugin)
     version = '0.5.2+build.202609260709'
     manifest = plugin / '.codex-plugin/plugin.json'
-    payload = json.loads(manifest.read_text())
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload['version'] = version
-    manifest.write_text(json.dumps(payload))
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
     assert prepare_release._plugin_manifest_version(plugin) == version
     prepare_release.build_plugin_archive(plugin, tmp_path / 'plugin.zip', version)
 

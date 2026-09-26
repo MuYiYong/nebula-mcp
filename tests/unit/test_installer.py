@@ -193,6 +193,11 @@ def test_posix_manual_registration_command_round_trips_argv(tmp_path: Path) -> N
         "mcp",
         "add",
         "nebula",
+        *[
+            item
+            for key, value in installer.NEW_REGISTRATION_ENVIRONMENT.items()
+            for item in ("--env", f"{key}={value}")
+        ],
         "--",
         str(system_python),
         str(launcher),
@@ -220,6 +225,11 @@ def test_windows_manual_registration_command_is_executable_powershell(
             "mcp",
             "add",
             "nebula",
+            *[
+                item
+                for key, value in installer.NEW_REGISTRATION_ENVIRONMENT.items()
+                for item in ("--env", f"{key}={value}")
+            ],
             "--",
             str(system_python),
             str(launcher),
@@ -260,6 +270,11 @@ def test_windows_manual_registration_command_round_trips_seven_argv_with_pwsh(
         "mcp",
         "add",
         "nebula",
+        *[
+            item
+            for key, value in installer.NEW_REGISTRATION_ENVIRONMENT.items()
+            for item in ("--env", f"{key}={value}")
+        ],
         "--",
         str(system_python),
         str(launcher),

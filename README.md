@@ -24,7 +24,7 @@ py -3 install.py --mode mcp
 
 ## 配置连接
 
-打开 Codex 的 **设置 → MCP 服务器 → nebula**，在环境变量中填写：
+如果 `nebula` 只出现在 **“来自插件”** 分组且没有齿轮，请运行上面的 `python3 install.py --mode mcp`（Windows 使用 `py -3 install.py --mode mcp`），再打开 Codex 的 **设置 → 插件 → MCP → 服务器 → nebula 齿轮**。新建的独立条目会预置以下字段，在空白处填写地址、用户名和密码即可：
 
 | 字段 | 内容 |
 |---|---|
@@ -35,7 +35,7 @@ py -3 install.py --mode mcp
 | `NEBULA_ALLOW_MUTATIONS` | `false`，默认只读 |
 | `NEBULA_ENVIRONMENT` | 环境名称，例如 `dev_nebula`，用于结果标识 |
 
-保存并重启该 MCP，然后在对话中输入“测试 Nebula 连接”。如果暂时看不到新条目，重新打开设置或重启 Codex。
+保存并重启该 MCP，然后在新对话中输入“测试 Nebula 连接”。已有独立条目的连接值在升级时保留，不会被默认值覆盖。
 
 连接信息保存在本机 Codex 配置中，包含明文密码，请勿分享该配置文件。需要在本地终端无回显输入密码时，可运行 `python3 install.py --configure`；该命令只配置默认的 `nebula` 条目。
 
@@ -44,7 +44,7 @@ py -3 install.py --mode mcp
 每套环境添加一个独立的 STDIO MCP 服务器，名称由你定义，例如 `dev_nebula`、`prod_nebula`、`test_nebula`，不限制为两套。
 
 1. 在 MCP 设置中添加自定义服务器，填写一个不重复的名称。
-2. 复制已安装 `nebula` 的命令和参数，复用同一程序，无需重复安装。`launcher.py` 路径应作为一个完整参数，含空格时不要拆开。
+2. 填写与已安装 `nebula` 相同的启动命令和参数，复用同一程序，无需重复安装。`launcher.py` 路径应作为一个完整参数，含空格时不要拆开。
 3. 分别填写该环境的地址、用户名和密码；建议 `NEBULA_ENVIRONMENT` 与服务器名称一致。
 4. 保存后按客户端提示重启对应服务器，测试连接。
 

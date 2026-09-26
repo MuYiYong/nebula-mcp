@@ -232,16 +232,14 @@ def test_first_registration_uses_get_then_add(tmp_path: Path) -> None:
     )
 
     assert result == "registration created"
-    assert fake_codex.commands == [
-        ["mcp", "get", "nebula", "--json"],
-        [
-            "mcp",
-            "add",
-            "nebula",
-            "--",
-            str(Path(sys.executable).resolve()),
-            str(paths.launcher),
-        ],
+    assert fake_codex.commands[0] == ["mcp", "get", "nebula", "--json"]
+    add_command = fake_codex.commands[1]
+    assert add_command[:3] == ["mcp", "add", "nebula"]
+    assert add_command[-3:] == ["--", str(Path(sys.executable).resolve()), str(paths.launcher)]
+    assert add_command[3:-3] == [
+        item
+        for key, value in installer.NEW_REGISTRATION_ENVIRONMENT.items()
+        for item in ("--env", f"{key}={value}")
     ]
 
 
@@ -511,6 +509,122 @@ def test_explicit_mcp_mode_keeps_standalone_registration_route(
     assert not any(command[:2] == ["plugin", "add"] for command in fake_codex.commands)
 
 
+def test_new_native_registration_prepopulates_connection_fields(tmp_path: Path) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+
+    installer.ensure_registration(
+        paths=paths,
+        system_python=Path(sys.executable).resolve(),
+        codex_command=fake_codex.command,
+        replace=False,
+        assume_yes=True,
+    )
+
+    assert fake_codex.registration_env == {
+        "NEBULA_ADDRESSES": "",
+        "NEBULA_USERNAME": "",
+        "NEBULA_PASSWORD": "",
+        "NEBULA_CONNECT_TIMEOUT_MS": "30000",
+        "NEBULA_ALLOW_MUTATIONS": "false",
+        "NEBULA_ENVIRONMENT": "default",
+    }
+
+
+def test_mcp_mode_adds_native_registration_when_get_resolves_plugin_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    paths.plugin_root.mkdir(parents=True)
+    (paths.plugin_root / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nebula": {
+            "command": str(Path(sys.executable).resolve()),
+            "args": [str(paths.launcher)],
+        }}}),
+        encoding="utf-8",
+    )
+    fake_codex = FakeCodexHarness.with_managed_registration(
+        tmp_path, launcher=paths.launcher, env={}
+    )
+    monkeypatch.setenv("CODEX_HOME", str(fake_codex.config_path.parent))
+
+    result = installer.ensure_registration(
+        paths=paths,
+        system_python=Path(sys.executable).resolve(),
+        codex_command=fake_codex.command,
+        replace=False,
+        assume_yes=True,
+    )
+
+    assert result == "registration created"
+    assert fake_codex.commands[-1][:3] == ["mcp", "add", "nebula"]
+    assert "[mcp_servers.nebula]" in fake_codex.config_path.read_text(encoding="utf-8")
+
+
+def test_mcp_mode_adds_native_registration_after_python_path_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    paths.plugin_root.mkdir(parents=True)
+    old_python = str(Path(sys.executable).resolve())
+    (paths.plugin_root / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nebula": {
+            "command": old_python, "args": [str(paths.launcher)]
+        }}}),
+        encoding="utf-8",
+    )
+    fake_codex = FakeCodexHarness.with_managed_registration(
+        tmp_path, launcher=paths.launcher, env={}
+    )
+    monkeypatch.setenv("CODEX_HOME", str(fake_codex.config_path.parent))
+    new_python = tmp_path / "new-python"
+    new_python.touch()
+
+    result = installer.ensure_registration(
+        paths=paths,
+        system_python=new_python,
+        codex_command=fake_codex.command,
+        replace=False,
+        assume_yes=True,
+    )
+
+    assert result == "registration created"
+    assert fake_codex.commands[-1][:3] == ["mcp", "add", "nebula"]
+    assert fake_codex.commands[-1][-3:] == ["--", str(new_python), str(paths.launcher)]
+
+
+def test_mcp_mode_preserves_native_registration_alongside_plugin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    paths.plugin_root.mkdir(parents=True)
+    (paths.plugin_root / ".mcp.json").write_text("{}", encoding="utf-8")
+    fake_codex = FakeCodexHarness.with_managed_registration(
+        tmp_path, launcher=paths.launcher, env={"NEBULA_PASSWORD": "preserve-me"}
+    )
+    fake_codex.config_path.parent.mkdir(parents=True)
+    fake_codex.config_path.write_text("[mcp_servers.nebula]\n", encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(fake_codex.config_path.parent))
+
+    result = installer.ensure_registration(
+        paths=paths,
+        system_python=Path(sys.executable).resolve(),
+        codex_command=fake_codex.command,
+        replace=False,
+        assume_yes=True,
+    )
+
+    assert result == "registration preserved"
+    assert not any(command[:2] == ["mcp", "add"] for command in fake_codex.commands)
+
+
 def test_configure_codex_writes_defaults_without_putting_password_in_argv(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -759,10 +873,17 @@ def test_explicit_replacement_warns_then_removes_and_adds(
     )
 
     assert "environment variables" in capsys.readouterr().out
-    assert fake_codex.commands == [
+    assert fake_codex.commands[:2] == [
         ["mcp", "get", "nebula", "--json"],
         ["mcp", "remove", "nebula"],
-        ["mcp", "add", "nebula", "--", sys.executable, str(paths.launcher)],
+    ]
+    add_command = fake_codex.commands[2]
+    assert add_command[:3] == ["mcp", "add", "nebula"]
+    assert add_command[-3:] == ["--", sys.executable, str(paths.launcher)]
+    assert add_command[3:-3] == [
+        item
+        for key, value in installer.NEW_REGISTRATION_ENVIRONMENT.items()
+        for item in ("--env", f"{key}={value}")
     ]
 
 
@@ -859,7 +980,7 @@ def test_windows_manual_command_still_prints_missing_codex_explanation(
 
     output = capsys.readouterr().out
     assert "Codex CLI was not found" in output
-    assert "& 'codex' 'mcp' 'add' 'nebula' '--'" in output
+    assert "& 'codex' 'mcp' 'add' 'nebula' '--env'" in output
 
 
 def test_codex_child_process_does_not_receive_nebula_environment(
@@ -879,10 +1000,12 @@ def test_codex_child_process_does_not_receive_nebula_environment(
         assume_yes=True,
     )
 
-    assert fake_codex.commands[-2:] == [
-        ["mcp", "remove", "nebula"],
-        ["mcp", "add", "nebula", "--", sys.executable, str(paths.launcher)],
-    ]
+    assert fake_codex.commands[-2] == ["mcp", "remove", "nebula"]
+    add_command = fake_codex.commands[-1]
+    assert add_command[:3] == ["mcp", "add", "nebula"]
+    assert add_command[-3:] == ["--", sys.executable, str(paths.launcher)]
+    assert "NEBULA_PASSWORD=" in add_command
+    assert "NEBULA_PASSWORD=must-not-reach-fake-codex" not in add_command
 
 
 def test_uninstall_removes_registration_before_managed_root(tmp_path: Path) -> None:

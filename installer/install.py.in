@@ -75,6 +75,14 @@ CONNECTION_ENVIRONMENT = (
     "NEBULA_CONNECT_TIMEOUT_MS",
     "NEBULA_ALLOW_MUTATIONS",
 )
+NEW_REGISTRATION_ENVIRONMENT = {
+    "NEBULA_ADDRESSES": "",
+    "NEBULA_USERNAME": "",
+    "NEBULA_PASSWORD": "",
+    "NEBULA_CONNECT_TIMEOUT_MS": "30000",
+    "NEBULA_ALLOW_MUTATIONS": "false",
+    "NEBULA_ENVIRONMENT": "default",
+}
 
 _CHECKSUM_LINE = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._+-]*)$")
 _RELEASE_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*$")
@@ -1476,15 +1484,10 @@ def render_manual_registration_command(
     *,
     platform_name: str | None = None,
 ) -> str:
-    arguments = [
-        "codex",
-        "mcp",
-        "add",
-        SERVER_NAME,
-        "--",
-        str(system_python),
-        str(launcher),
-    ]
+    arguments = ["codex", "mcp", "add", SERVER_NAME]
+    for key, value in NEW_REGISTRATION_ENVIRONMENT.items():
+        arguments.extend(["--env", f"{key}={value}"])
+    arguments.extend(["--", str(system_python), str(launcher)])
     platform = sys.platform if platform_name is None else platform_name
     if platform == "win32":
         return "& " + " ".join(
@@ -1858,10 +1861,21 @@ def classify_registration(
     return "conflict"
 
 
+def _has_standalone_nebula_registration() -> bool:
+    content, _ = _snapshot_codex_config(codex_config_path())
+    if content is None:
+        return False
+    return re.search(
+        rb"(?m)^[ \t]*\[[ \t]*mcp_servers[ \t]*\.[ \t]*(?:nebula|\"nebula\"|'nebula')[ \t]*\]",
+        content,
+    ) is not None
+
+
 def inspect_registration(
     command: CodexCommand,
     launcher: Path,
     system_python: Path,
+    plugin_root: Path | None = None,
 ) -> RegistrationKind:
     completed = run_codex(command, ["mcp", "get", SERVER_NAME, "--json"])
     if completed.returncode != 0:
@@ -1886,6 +1900,20 @@ def inspect_registration(
             "Codex returned an invalid MCP registration",
             f"Run codex mcp get {SERVER_NAME} and inspect the registration.",
         )
+    if plugin_root is not None and not _has_standalone_nebula_registration():
+        plugin_config = plugin_root / ".mcp.json"
+        if plugin_config.is_file() and not plugin_config.is_symlink():
+            plugin = _read_plugin_json(plugin_config)
+            servers = plugin.get("mcpServers")
+            server = servers.get(SERVER_NAME) if isinstance(servers, dict) else None
+            transport = payload.get("transport")
+            if (
+                isinstance(server, dict)
+                and isinstance(transport, dict)
+                and transport.get("command") == server.get("command")
+                and transport.get("args") == server.get("args")
+            ):
+                return "absent"
     return classify_registration(payload, launcher, system_python)
 
 
@@ -1975,7 +2003,9 @@ def ensure_plugin_registration(
 ) -> str:
     if codex_command is None:
         return render_manual_plugin_commands(paths)
-    registration = inspect_registration(codex_command, paths.launcher, system_python)
+    registration = inspect_registration(
+        codex_command, paths.launcher, system_python, paths.plugin_root
+    )
     if registration == "conflict":
         raise _error(
             "codex-plugin",
@@ -2017,7 +2047,9 @@ def ensure_registration(
     manual_command = render_manual_registration_command(system_python, paths.launcher)
     if codex_command is None:
         return manual_command
-    registration = inspect_registration(codex_command, paths.launcher, system_python)
+    registration = inspect_registration(
+        codex_command, paths.launcher, system_python, paths.plugin_root
+    )
     if registration == "managed":
         return "registration preserved"
     if registration == "conflict" and not replace:
@@ -2033,11 +2065,11 @@ def ensure_registration(
             ["mcp", "remove", SERVER_NAME],
             operation="remove",
         )
-    _require_codex_success(
-        codex_command,
-        ["mcp", "add", SERVER_NAME, "--", str(system_python), str(paths.launcher)],
-        operation="create",
-    )
+    add_arguments = ["mcp", "add", SERVER_NAME]
+    for key, value in NEW_REGISTRATION_ENVIRONMENT.items():
+        add_arguments.extend(["--env", f"{key}={value}"])
+    add_arguments.extend(["--", str(system_python), str(paths.launcher)])
+    _require_codex_success(codex_command, add_arguments, operation="create")
     return "registration created"
 
 

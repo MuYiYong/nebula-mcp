@@ -107,12 +107,12 @@ def test_tag_must_exactly_match_project_version(tmp_path: Path) -> None:
 
     assert prepare_release.validate_release_tag("v0.1.0", pyproject) == "0.1.0"
     with pytest.raises(ValueError, match="does not match"):
-        prepare_release.validate_release_tag("v0.5.2", pyproject)
+        prepare_release.validate_release_tag("v0.6.0", pyproject)
 
 
 def test_current_project_server_and_plugin_versions_are_0_2_0() -> None:
-    assert prepare_release.read_project_version(ROOT / "pyproject.toml") == "0.5.2"
-    assert '__version__ = "0.5.2"' in (ROOT / "src" / "nebula_mcp" / "__init__.py").read_text(
+    assert prepare_release.read_project_version(ROOT / "pyproject.toml") == "0.6.0"
+    assert '__version__ = "0.6.0"' in (ROOT / "src" / "nebula_mcp" / "__init__.py").read_text(
         encoding="utf-8"
     )
     assert 'version=__version__' in (ROOT / "src" / "nebula_mcp" / "server.py").read_text(
@@ -121,7 +121,7 @@ def test_current_project_server_and_plugin_versions_are_0_2_0() -> None:
     manifest = json.loads(
         (PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
     )
-    assert manifest["version"] == "0.5.2"
+    assert manifest["version"] == "0.6.0"
 
 
 def test_sdist_build_is_limited_to_installable_public_files() -> None:
@@ -137,15 +137,15 @@ def test_sdist_build_is_limited_to_installable_public_files() -> None:
 
 
 def test_release_rejects_unexpected_source_artifacts(tmp_path: Path) -> None:
-    archive = tmp_path / "nebula_mcp-0.5.2.tar.gz"
+    archive = tmp_path / "nebula_mcp-0.6.0.tar.gz"
     build_fixture_sdist(
         archive,
-        "0.5.2",
+        "0.6.0",
         extra_member="src/nebula_mcp/ui/query-result 2.html",
     )
 
     with pytest.raises(ValueError, match="unexpected public"):
-        prepare_release.validate_sdist_archive(archive, "0.5.2")
+        prepare_release.validate_sdist_archive(archive, "0.6.0")
 
 
 @pytest.mark.parametrize(
@@ -161,15 +161,15 @@ def test_release_rejects_private_sdist_members(
     tmp_path: Path,
     private_member: str,
 ) -> None:
-    archive = tmp_path / "nebula_mcp-0.5.2.tar.gz"
+    archive = tmp_path / "nebula_mcp-0.6.0.tar.gz"
     payload = b"private"
     with tarfile.open(archive, "w:gz") as package:
-        info = tarfile.TarInfo(f"nebula_mcp-0.5.2/{private_member}")
+        info = tarfile.TarInfo(f"nebula_mcp-0.6.0/{private_member}")
         info.size = len(payload)
         package.addfile(info, io.BytesIO(payload))
 
     with pytest.raises(ValueError, match="private planning"):
-        prepare_release.validate_sdist_archive(archive, "0.5.2")
+        prepare_release.validate_sdist_archive(archive, "0.6.0")
 
 
 def test_plugin_manifest_mcp_mapping_and_marketplace_are_exact() -> None:
@@ -182,7 +182,7 @@ def test_plugin_manifest_mcp_mapping_and_marketplace_are_exact() -> None:
     )
 
     assert manifest["name"] == "nebula-mcp"
-    assert manifest["version"] == "0.5.2"
+    assert manifest["version"] == "0.6.0"
     assert manifest["mcpServers"] == "./.mcp.json"
     assert mcp == {"mcpServers": {"nebula": {"command": "nebula-mcp", "args": []}}}
     assert marketplace == {
@@ -203,8 +203,8 @@ def test_plugin_archive_is_allowlisted_and_deterministic(tmp_path: Path) -> None
     first = tmp_path / "first.zip"
     second = tmp_path / "second.zip"
 
-    prepare_release.build_plugin_archive(PLUGIN_ROOT, first, "0.5.2")
-    prepare_release.build_plugin_archive(PLUGIN_ROOT, second, "0.5.2")
+    prepare_release.build_plugin_archive(PLUGIN_ROOT, first, "0.6.0")
+    prepare_release.build_plugin_archive(PLUGIN_ROOT, second, "0.6.0")
 
     assert hashlib.sha256(first.read_bytes()).digest() == hashlib.sha256(
         second.read_bytes()
@@ -218,7 +218,7 @@ def test_plugin_archive_is_allowlisted_and_deterministic(tmp_path: Path) -> None
         ]
         assert all(not name.startswith("/") and ".." not in name.split("/") for name in archive.namelist())
         archived_manifest = json.loads(archive.read(".codex-plugin/plugin.json"))
-    assert archived_manifest["version"] == "0.5.2"
+    assert archived_manifest["version"] == "0.6.0"
 
 
 @pytest.mark.parametrize(
@@ -254,7 +254,7 @@ def test_plugin_archive_rejects_unsafe_or_unexpected_content(
         (plugin / ".mcp.json").write_text(json.dumps(mapping), encoding="utf-8")
 
     with pytest.raises(ValueError, match=message):
-        prepare_release.build_plugin_archive(plugin, tmp_path / "plugin.zip", "0.5.2")
+        prepare_release.build_plugin_archive(plugin, tmp_path / "plugin.zip", "0.6.0")
 
 
 def test_rendered_installer_contains_exact_repository_and_version(tmp_path: Path) -> None:
@@ -333,17 +333,17 @@ def test_checksums_are_sorted_and_release_notes_use_exact_asset_url(tmp_path: Pa
 
 
 def test_cli_prepares_only_exact_current_build_assets(tmp_path: Path) -> None:
-    wheel = tmp_path / "nebula_mcp-0.5.2-py3-none-any.whl"
-    sdist = tmp_path / "nebula_mcp-0.5.2.tar.gz"
+    wheel = tmp_path / "nebula_mcp-0.6.0-py3-none-any.whl"
+    sdist = tmp_path / "nebula_mcp-0.6.0.tar.gz"
     wheel.write_bytes(b"wheel")
-    build_fixture_sdist(sdist, "0.5.2")
+    build_fixture_sdist(sdist, "0.6.0")
 
     result = prepare_release.main(
         [
             "--repository",
             "local-validation/nebula-mcp",
             "--tag",
-            "v0.5.2",
+            "v0.6.0",
             "--dist",
             str(tmp_path),
         ]
@@ -353,7 +353,7 @@ def test_cli_prepares_only_exact_current_build_assets(tmp_path: Path) -> None:
     assert [
         line.split("  ", 1)[1]
         for line in (tmp_path / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
-    ] == ["install.py", "nebula-mcp-plugin-0.5.2.zip", wheel.name, sdist.name]
+    ] == ["install.py", "nebula-mcp-plugin-0.6.0.zip", wheel.name, sdist.name]
     assert (tmp_path / "RELEASE_NOTES.md").is_file()
 
 
@@ -366,7 +366,7 @@ def test_cli_includes_plugin_archive_when_release_version_matches(
     (release_root / "installer").mkdir(parents=True)
     dist.mkdir()
     (release_root / "pyproject.toml").write_text(
-        '[project]\nname = "nebula-mcp"\nversion = "0.5.2"\n',
+        '[project]\nname = "nebula-mcp"\nversion = "0.6.0"\n',
         encoding="utf-8",
     )
     (release_root / "installer" / "install.py.in").write_text(
@@ -375,8 +375,8 @@ def test_cli_includes_plugin_archive_when_release_version_matches(
         encoding="utf-8",
     )
     shutil.copytree(PLUGIN_ROOT, release_root / "plugins" / "nebula-mcp")
-    (dist / "nebula_mcp-0.5.2-py3-none-any.whl").write_bytes(b"wheel")
-    build_fixture_sdist(dist / "nebula_mcp-0.5.2.tar.gz", "0.5.2")
+    (dist / "nebula_mcp-0.6.0-py3-none-any.whl").write_bytes(b"wheel")
+    build_fixture_sdist(dist / "nebula_mcp-0.6.0.tar.gz", "0.6.0")
     monkeypatch.setattr(prepare_release, "ROOT", release_root)
 
     assert (
@@ -385,7 +385,7 @@ def test_cli_includes_plugin_archive_when_release_version_matches(
                 "--repository",
                 "local-validation/nebula-mcp",
                 "--tag",
-                "v0.5.2",
+                "v0.6.0",
                 "--dist",
                 str(dist),
             ]
@@ -393,7 +393,7 @@ def test_cli_includes_plugin_archive_when_release_version_matches(
         == 0
     )
 
-    plugin = dist / "nebula-mcp-plugin-0.5.2.zip"
+    plugin = dist / "nebula-mcp-plugin-0.6.0.zip"
     assert plugin.is_file()
     checksum_names = [
         line.split("  ", 1)[1]
@@ -402,14 +402,14 @@ def test_cli_includes_plugin_archive_when_release_version_matches(
     assert checksum_names == [
         "install.py",
         plugin.name,
-        "nebula_mcp-0.5.2-py3-none-any.whl",
-        "nebula_mcp-0.5.2.tar.gz",
+        "nebula_mcp-0.6.0-py3-none-any.whl",
+        "nebula_mcp-0.6.0.tar.gz",
     ]
 
 
 def test_cli_rejects_old_or_extra_distribution_assets(tmp_path: Path) -> None:
-    (tmp_path / "nebula_mcp-0.5.2-py3-none-any.whl").write_bytes(b"wheel")
-    (tmp_path / "nebula_mcp-0.5.2.tar.gz").write_bytes(b"sdist")
+    (tmp_path / "nebula_mcp-0.6.0-py3-none-any.whl").write_bytes(b"wheel")
+    (tmp_path / "nebula_mcp-0.6.0.tar.gz").write_bytes(b"sdist")
     (tmp_path / "nebula_mcp-0.1.4-py3-none-any.whl").write_bytes(b"old wheel")
 
     with pytest.raises(ValueError, match="exactly one wheel and one sdist"):
@@ -418,7 +418,7 @@ def test_cli_rejects_old_or_extra_distribution_assets(tmp_path: Path) -> None:
                 "--repository",
                 "local-validation/nebula-mcp",
                 "--tag",
-                "v0.5.2",
+                "v0.6.0",
                 "--dist",
                 str(tmp_path),
             ]

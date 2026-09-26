@@ -33,7 +33,7 @@ describe("MCP Apps bridge", () => {
       id: 1,
       method: "ui/initialize",
       params: {
-        appInfo: { name: "nebula-mcp-query-result", version: "0.5.2" },
+        appInfo: { name: "nebula-mcp-query-result", version: "0.6.0" },
         appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] },
         protocolVersion: "2026-01-26",
       },

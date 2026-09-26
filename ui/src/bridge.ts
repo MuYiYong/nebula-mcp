@@ -64,7 +64,7 @@ export function createBridge(parentWindow: Window = window.parent): McpBridge {
   return {
     async connect(): Promise<unknown> {
       const host = await request("ui/initialize", {
-        appInfo: { name: "nebula-mcp-query-result", version: "0.5.2" },
+        appInfo: { name: "nebula-mcp-query-result", version: "0.6.0" },
         appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] },
         protocolVersion: "2026-01-26",
       });

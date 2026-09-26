@@ -17,9 +17,9 @@
 
 正式 Release 的安装器会把受管插件副本改写为安装器生成的绝对 launcher 命令，因此普通用户不需要自行维护 Python 或脚本路径。
 
-要在 Codex 页面配置持久连接，先运行发行安装器 `python3 install.py --mode mcp`（Windows 为 `py -3 install.py --mode mcp`）。插件分组中的 `nebula` 没有环境变量编辑按钮；安装完成后，在“设置 → 插件 → MCP → 服务器”分组打开独立 `nebula` 的齿轮，填写 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD`，保存并重启。操作步骤和其他字段见[项目 README](https://github.com/MuYiYong/nebula-mcp#配置连接)。
+要在 Codex 页面配置持久连接，先运行发行安装器 `python3 install.py --mode mcp`（Windows 为 `py -3 install.py --mode mcp`）。插件分组中的 `nebula` 没有环境变量编辑按钮；安装完成后，在“设置 → 插件 → MCP → 服务器”分组打开独立 `nebula` 的齿轮，填写 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD`，保存并重启。操作步骤和其他字段见[项目 README](../../README.md#配置连接)。
 
-如需只在当前 MCP 进程临时配置连接，可调用 `nebula_configure_connection`；工具参数可能由宿主留存。持久配置请使用上面的 Codex 页面，或运行发行安装器 `python3 install.py --configure` 在本地无回显输入密码。查询和选图复用同一个数据库 session。本地 `config.toml` 明文保存连接信息（包括 `NEBULA_PASSWORD`），不要共享文件，也不要提交真实值。默认只读。
+安装后在对话中说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。连接信息仅在 MCP 进程内保存，查询和选图复用同一个数据库 session。密码不会返回，但工具参数可能由宿主留存；需要本地无回显密码输入或持久化时，运行发行安装器 `python3 install.py --configure`。本地 `config.toml` 明文保存连接信息（包括 `NEBULA_PASSWORD`），不要共享文件，也不要提交真实值。默认只读。
 
 之后直接说“使用 Nebula MCP，执行 MATCH (n) RETURN n LIMIT 20”。缺图时先提示选择，用户给出图名后执行 `SESSION SET GRAPH` 并自动续跑原查询。
 

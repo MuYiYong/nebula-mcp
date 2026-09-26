@@ -35,7 +35,10 @@ from nebula_mcp.models import (
 )
 from nebula_mcp.runtime import RuntimeState
 from nebula_mcp.service import NebulaService
-from nebula_mcp.ui_resource import UI_RESOURCE_URI, read_query_result_html
+from nebula_mcp.ui_resource import (
+    UI_RESOURCE_URI,
+    read_query_result_html,
+)
 
 OutputModel = TypeVar("OutputModel", bound=BaseModel)
 
@@ -51,7 +54,6 @@ MUTATING = ToolAnnotations(
     idempotent_hint=False,
     open_world_hint=True,
 )
-
 INSTRUCTIONS = """Use this server when the user says 使用 Nebula MCP，执行 xxx 语句.
 On CONFIGURATION_REQUIRED ask for connection settings and call nebula_configure_connection;
 never echo passwords. Tool arguments may be recorded by the host; offer local installer

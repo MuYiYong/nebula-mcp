@@ -93,7 +93,7 @@ async def test_server_exposes_complete_prefixed_tool_set(service: NebulaService)
         "nebula_configure_connection",
         "nebula_select_graph",
     }
-    assert server_version == "0.5.2"
+    assert server_version == "0.6.0"
     assert tools["nebula_execute_query"].annotations.read_only_hint is True
     assert tools["nebula_execute_query"].annotations.destructive_hint is False
     assert tools["nebula_execute_mutation"].annotations.destructive_hint is True

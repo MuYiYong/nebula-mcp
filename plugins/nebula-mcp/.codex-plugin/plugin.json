@@ -1,6 +1,6 @@
 {
   "name": "nebula-mcp",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Connect Codex to a YueShu 5.3 graph database with read-only GQL, structured analysis, and interactive graph results.",
   "author": {
     "name": "MuYiYong"

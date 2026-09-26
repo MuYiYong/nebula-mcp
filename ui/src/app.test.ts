@@ -240,7 +240,7 @@ describe("query-result app shell", () => {
 
 
 describe("graph properties and profile presentation", () => {
-  it("shows compact node and edge properties below the canvas without recreating it", () => {
+  it("shows only returned node and edge properties below the canvas without recreating it", () => {
     const root = document.createElement("main");
     const fake = fakeBridge();
     mountApp(root, fake.bridge);
@@ -249,12 +249,14 @@ describe("graph properties and profile presentation", () => {
     const canvas = root.querySelector(".graph-canvas");
     const before = graphMock.destroy.mock.calls.length;
     selectElement("demo:1");
-    expect(root.querySelector("h3")?.textContent).toBe("点主键：code=A-1");
-    expect(root.querySelector('[data-testid="node-properties"]')?.textContent).toBe("name=A · code=A-1");
+    expect(Array.from(root.querySelectorAll(".element-properties dt, .element-properties dd"),
+      (item) => item.textContent)).toEqual(["name", "A", "code", "A-1"]);
+    expect(root.querySelector(".node-inspector")?.textContent).not.toContain("主键");
     expect(root.textContent).not.toContain("扩展一跳");
     selectElement("demo:1:Invest:0:2");
-    expect(root.querySelector("h3")?.textContent).toBe("起点主键：code=A-1 → 终点主键：code=B-2 · multiedge key：year=2026");
-    expect(root.querySelector('[data-testid="node-properties"]')?.textContent).toBe("year=2026 · weight=10");
+    expect(Array.from(root.querySelectorAll(".element-properties dt, .element-properties dd"),
+      (item) => item.textContent)).toEqual(["year", "2026", "weight", "10"]);
+    expect(root.querySelector(".node-inspector")?.textContent).not.toContain("起点");
     expect(fake.request).not.toHaveBeenCalled();
     expect(root.textContent).not.toContain("扩展一跳");
     expect(root.querySelector(".graph-canvas")).toBe(canvas);
@@ -285,11 +287,22 @@ describe("graph properties and profile presentation", () => {
     tab.click();
     expect(root.querySelector('[role="tabpanel"]')?.textContent).toContain("Project");
     expect(root.querySelector('[role="tabpanel"]')?.textContent).toContain("1.2");
+    expect(root.querySelectorAll(".gql-header")).toHaveLength(1);
     expect(root.textContent).not.toContain("PROFILE JSON");
+  });
+
+  it("hides the automatic PROFILE prefix in legacy results without a display statement", () => {
+    const root = document.createElement("main");
+    const fake = fakeBridge();
+    mountApp(root, fake.bridge);
+    fake.emitResult(presentation("PROFILE MATCH (v) RETURN v LIMIT 10"));
+    expect(root.querySelector(".gql-header code")?.textContent).toBe("MATCH (v) RETURN v LIMIT 10");
+    button(root, "查询记录").click();
+    expect(root.querySelector(".result-panel code")?.textContent).toBe("MATCH (v) RETURN v LIMIT 10");
   });
 });
 
-it("does not label internal IDs as unknown primary keys", () => {
+it("omits missing keys and internal IDs from clicked results", () => {
   const root = document.createElement("main");
   const fake = fakeBridge();
   const data = graphPresentation() as any;
@@ -301,10 +314,35 @@ it("does not label internal IDs as unknown primary keys", () => {
   mountApp(root, fake.bridge);
   fake.emitResult(data);
   selectElement("demo:1");
-  expect(root.querySelector("h3")?.textContent).toBe("点主键：未返回");
+  expect(root.querySelector(".node-inspector")?.textContent).toBe("nameAcodeA-1");
   selectElement(edge.id);
-  expect(root.querySelector("h3")?.textContent).toBe("起点主键：未返回 → 终点主键：code=B-2");
-  expect(root.querySelector("h3")?.textContent).not.toContain(edge.rank);
+  expect(root.querySelector(".node-inspector")?.textContent).toBe("year2026weight10");
+  expect(root.querySelector(".node-inspector")?.textContent).not.toContain(edge.rank);
+});
+
+it("shows a plain empty state when a returned graph element has no properties", () => {
+  const root = document.createElement("main");
+  const fake = fakeBridge();
+  const data = graphPresentation() as any;
+  data.structuredContent.result.graph.elements.nodes[0].data.properties = {};
+  mountApp(root, fake.bridge);
+  fake.emitResult(data);
+  selectElement("demo:1");
+  expect(root.querySelector(".node-inspector")?.textContent).toBe("查询结果未包含属性");
+});
+
+it("keeps returned null and whitespace values intact in clicked results", () => {
+  const root = document.createElement("main");
+  const fake = fakeBridge();
+  const data = graphPresentation() as any;
+  data.structuredContent.result.graph.elements.nodes[0].data.properties = {
+    name: "A  B\nC", score: null,
+  };
+  mountApp(root, fake.bridge);
+  fake.emitResult(data);
+  selectElement("demo:1");
+  expect(Array.from(root.querySelectorAll(".element-properties dd"),
+    (item) => item.textContent)).toEqual(["A  B\nC", "null"]);
 });
 
 it("shows typed date values compactly and preserves explanation paragraphs", () => {
@@ -319,7 +357,7 @@ it("shows typed date values compactly and preserves explanation paragraphs", () 
   fake.emitResult(data);
   selectElement("demo:1");
   const properties = root.querySelector('[data-testid="node-properties"]')!.textContent!;
-  expect(properties).toContain("birthday=1965-01-01T00:00:00");
+  expect(properties).toContain("birthday1965-01-01T00:00:00");
   expect(properties).not.toContain("$type");
   button(root, "人工解释").click();
   expect(Array.from(root.querySelectorAll('[role="tabpanel"] p'), p => p.textContent)).toEqual([

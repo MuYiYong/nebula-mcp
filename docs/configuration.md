@@ -16,7 +16,7 @@ Windows 使用 `py -3`。安装器校验本地资产的 SHA-256；Python 依赖�
 
 常规安装推荐 `--mode mcp`，便于在原生设置中分别配置多个服务器。需要插件模式时运行 `python3 install.py`（不带 `--mode mcp`），Windows 使用 `py -3 install.py`。
 
-默认使用 Codex plugin 模式时，安装器注册 `nebula-mcp@nebula-mcp-local`。没有 Codex CLI 时会输出稍后注册所需的命令。插件条目与独立 MCP 条目是两种入口；只有“服务器”分组中的独立 MCP 条目提供环境变量编辑按钮。已装插件且希望在页面配置时，运行 `python3 install.py --mode mcp` 添加独立条目。
+默认使用 Codex plugin 模式时，安装器注册 `nebula-mcp@nebula-mcp-local`。没有 Codex CLI 时会输出稍后注册所需的命令。插件条目与独立 MCP 条目是两种入口；只有“服务器”分组中的独立 MCP 条目提供环境变量编辑按钮。已装插件且希望在页面配置时，运行 `python3 install.py --mode mcp` 添加独立条目，然后在 Codex 设置中填写连接字段。
 
 已有独立 `nebula` 注册不会被默认插件安装替换。需要迁移时运行 `python3 install.py --migrate-to-plugin`；非本安装器管理的同名服务器不会被自动删除。
 
@@ -30,7 +30,7 @@ python3 install.py --clear-config
 
 这些命令只管理名称为 `nebula` 的独立注册：配置使用无回显密码输入，状态只显示字段是否已设置，清除会删除该独立注册。自定义名称的服务器请在原生设置中管理。密码需要保留首尾空格时使用 `--configure`，原生环境变量编辑器可能去掉首尾空格。
 
-新建独立 `nebula` 注册时，安装器会预置 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD` 三个空字段，以及 `NEBULA_CONNECT_TIMEOUT_MS=30000`、`NEBULA_ALLOW_MUTATIONS=false`、`NEBULA_ENVIRONMENT=default`。已有注册的变量不会被覆盖。
+新建独立注册时，安装器会预置 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD` 三个空字段，以及 `NEBULA_CONNECT_TIMEOUT_MS=30000`、`NEBULA_ALLOW_MUTATIONS=false`、`NEBULA_ENVIRONMENT=default`。已有注册的变量不会被覆盖。当前公开的 Codex 插件接口不允许本项目在原生 MCP 设置页添加复制按钮；另一套服务器需在原生页面新建并配置。
 
 连接配置保存在本机 Codex config.toml 中，包含明文密码。不要分享该配置文件。`nebula_configure_connection` 仅临时改变当前进程连接，不保存到此文件；工具参数可能由客户端记录。
 

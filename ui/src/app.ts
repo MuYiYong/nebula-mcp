@@ -74,12 +74,13 @@ export function mountApp(root: HTMLElement, bridge: McpBridge): AppController {
     const article = document.createElement("article");
     article.className = "query-result";
     article.append(renderGqlHeader(displayGql(state.presentation.result.query)));
+    const metadata = document.createElement("div");
+    metadata.className = "result-metadata";
     if (state.presentation.result.query.environment) {
-      const environment = document.createElement("small");
+      const environment = document.createElement("span");
       environment.textContent = `环境：${state.presentation.result.query.environment}`;
-      article.append(environment);
+      metadata.append(environment);
     }
-
     if (
       state.presentation.result.truncation.truncated ||
       state.presentation.result.graph?.truncated
@@ -87,8 +88,9 @@ export function mountApp(root: HTMLElement, bridge: McpBridge): AppController {
       const marker = document.createElement("span");
       marker.className = "truncation-marker";
       marker.textContent = "结果已截断";
-      article.append(marker);
+      metadata.append(marker);
     }
+    if (metadata.childElementCount > 0) article.append(metadata);
 
     const tabs = document.createElement("nav");
     tabs.setAttribute("role", "tablist");
@@ -125,9 +127,9 @@ export function mountApp(root: HTMLElement, bridge: McpBridge): AppController {
         panel.replaceChildren(error);
       });
     } else if (state.selectedTab === "PROFILE") {
-      state.profiles.forEach((profile, index) => {
+      state.profiles.forEach((profile) => {
         const entry = document.createElement("section");
-        entry.append(renderGqlHeader(state!.gqlHistory[index] ?? ""));
+        entry.className = "profile-entry";
         renderProfile(entry, profile);
         panel.append(entry);
       });
@@ -155,7 +157,7 @@ export function mountApp(root: HTMLElement, bridge: McpBridge): AppController {
     const panel = root.querySelector<HTMLElement>(".result-panel");
     panel?.querySelector(".node-inspector")?.remove();
     panel?.querySelector('[role="alert"]')?.remove();
-    panel?.append(renderNodeInspector(element, state));
+    panel?.append(renderNodeInspector(element));
   };
 
   const renderGraphPanel = (panel: HTMLElement, current: AppState): HTMLElement => {
@@ -195,22 +197,34 @@ export function mountApp(root: HTMLElement, bridge: McpBridge): AppController {
       (node) => node.data.id === current.selectedElementId,
     );
     if (selected !== undefined) {
-      panel.append(renderNodeInspector(selected, current));
+      panel.append(renderNodeInspector(selected));
     }
     return graphContainer;
   };
 
-  const renderNodeInspector = (node: GraphElement, current: AppState): HTMLElement => {
+  const renderNodeInspector = (node: GraphElement): HTMLElement => {
     const inspector = document.createElement("aside");
     inspector.className = "node-inspector";
-    const title = document.createElement("h3");
-    title.textContent = elementIdentity(node, current.graphElements);
-    const properties = document.createElement("div");
+    inspector.setAttribute("aria-label", "选中元素的查询结果");
+    const properties = document.createElement("dl");
     properties.className = "element-properties";
     properties.dataset.testid = "node-properties";
-    properties.setAttribute("aria-label", "属性");
-    properties.textContent = compactProperties(node.data.properties) || "无属性";
-    inspector.append(title, properties);
+    if (isRecord(node.data.properties)) {
+      for (const [key, value] of Object.entries(node.data.properties)) {
+        const label = document.createElement("dt");
+        label.textContent = key;
+        const result = document.createElement("dd");
+        result.textContent = compactValue(value);
+        properties.append(label, result);
+      }
+    }
+    if (properties.childElementCount === 0) {
+      const empty = document.createElement("p");
+      empty.textContent = "查询结果未包含属性";
+      inspector.append(empty);
+    } else {
+      inspector.append(properties);
+    }
     return inspector;
   };
 
@@ -450,30 +464,12 @@ function graphNodeLabel(node: GraphElement): string {
   return typeof node.data.type === "string" ? node.data.type : node.data.id;
 }
 
-function compactProperties(value: unknown): string {
-  if (!isRecord(value)) return "";
-  return Object.entries(value).map(([key, item]) => `${key}=${compactValue(item)}`).join(" · ");
-}
-
 function compactValue(value: unknown): string {
-  if (value === null || value === undefined) return "未返回";
+  if (value === null) return "null";
+  if (value === undefined) return "";
   if (isRecord(value) && ["datetime", "date", "time"].includes(String(value.$type)) && typeof value.value === "string") return value.value;
   if (typeof value === "object") return JSON.stringify(value);
-  return String(value).replace(/\s+/gu, " ");
-}
-
-function elementIdentity(element: GraphElement, elements: GraphElements): string {
-  const key = (node: GraphElement | undefined): string => compactProperties(node?.data.primary_key) || "未返回";
-  if (elements.nodes.includes(element)) return `点主键：${key(element)}`;
-  const source = elements.nodes.find(node => node.data.id === element.data.source);
-  const target = elements.nodes.find(node => node.data.id === element.data.target);
-  const direction = element.data.direction;
-  // The SDK normalizes src_id/dst_id for INCOMING edges before serialization.
-  const arrow = direction === "OUTGOING" || direction === "INCOMING" ? "→"
-    : direction === "UNDIRECTED" ? "—" : "（方向未返回）";
-  const multiedge = compactProperties(element.data.multiedge_key);
-  return `起点主键：${key(source)} ${arrow} 终点主键：${key(target)}` +
-    (multiedge ? ` · multiedge key：${multiedge}` : "");
+  return String(value);
 }
 
 function hasGraphElements(elements: GraphElements): boolean {
@@ -485,7 +481,7 @@ function isGraphLayout(value: string): value is GraphLayout {
 }
 
 function displayGql(query: QueryOutput["query"]): string {
-  return query.display_statement ?? query.executed_statement;
+  return query.display_statement ?? query.executed_statement.replace(/^\s*PROFILE\s+/iu, "");
 }
 
 function normalizeProfile(value: unknown): ProfileOutput | null {

@@ -66,8 +66,14 @@ def test_tag_collision_does_not_overwrite(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_tampering_rejected_before_publication(tmp_path: Path) -> None:
     version = '0.5.2'
+    plugin = tmp_path.parent / f'{tmp_path.name}-plugin-src'
+    shutil.copytree(prepare_release.ROOT / 'plugins/nebula-mcp', plugin)
+    manifest = plugin / '.codex-plugin/plugin.json'
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload['version'] = version
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
     prepare_release.build_plugin_archive(
-        prepare_release.ROOT / 'plugins/nebula-mcp', tmp_path / f'nebula-mcp-plugin-{version}.zip',
+        plugin, tmp_path / f'nebula-mcp-plugin-{version}.zip',
         version,
     )
     for name in ['install.py', f'nebula_mcp-{version}.tar.gz',

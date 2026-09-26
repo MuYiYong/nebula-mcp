@@ -246,9 +246,9 @@ def validate_sdist_archive(sdist: Path, version: str) -> None:
                 is_source = False
                 try:
                     source_relative = relative.relative_to(source_root)
-                    is_source = source_relative.suffix == ".py" or source_relative == (
-                        PurePosixPath("ui/query-result.html")
-                    )
+                    is_source = source_relative.suffix == ".py" or source_relative in {
+                        PurePosixPath("ui/query-result.html"),
+                    }
                 except ValueError:
                     pass
                 if relative not in public_metadata and not is_source:

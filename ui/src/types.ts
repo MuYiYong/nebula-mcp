@@ -58,9 +58,3 @@ export interface QueryPresentation {
   result: QueryOutput;
   explanation: string;
 }
-
-export interface ToolCallResult {
-  isError?: boolean;
-  structuredContent?: unknown;
-  content?: unknown;
-}

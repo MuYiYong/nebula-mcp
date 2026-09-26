@@ -83,14 +83,6 @@ def workflow_step_run_lines(job: str, name: str) -> list[str]:
     return executable_shell_lines(workflow_run_script(step))
 
 
-def workflow_yaml_data_lines(text: str) -> list[str]:
-    return [
-        line.strip()
-        for line in text.splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
-
-
 def assert_lines_in_order(lines: list[str], required: list[str]) -> None:
     for line in required:
         assert line in lines

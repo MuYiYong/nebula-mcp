@@ -105,7 +105,6 @@ class ScannedGQL:
     tokens: tuple[str, ...]
     semicolon_positions: tuple[int, ...]
     procedures: tuple[str, ...]
-    has_call_subquery: bool
 
 
 def _blank_quoted_and_commented(statement: str) -> str:
@@ -163,7 +162,6 @@ def scan_gql(statement: str) -> ScannedGQL:
         tokens=tokens,
         semicolon_positions=tuple(match.start() for match in matches if match.group(0) == ";"),
         procedures=procedures,
-        has_call_subquery=re.search(r"\bCALL\s*\{", sanitized, re.IGNORECASE) is not None,
     )
 
 

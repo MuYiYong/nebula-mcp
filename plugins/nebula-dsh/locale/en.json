@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "YueShu graph database (NebulaGraph 5.x)",
-    "description": "Configure one read-only YueShu graph database connection below Agent presets in DSH settings. Requires the separately installed nebula-mcp Python runtime."
+    "description": "Manage saved YueShu graph database connections below Agent presets in DSH settings. Use one read-only connection at a time. Requires the separately installed nebula-mcp Python runtime."
   }
 }

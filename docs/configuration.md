@@ -5,9 +5,11 @@
 <a id="dsh-runtime"></a>
 ## DeepSeek Harness 运行时
 
-DSH `0.2.2-rc.5` 或符合 `^0.2.2-rc.5` 的更新版本，可通过 [MuYiYong/dsh-marketplace](https://github.com/MuYiYong/dsh-marketplace) 安装 `dsh-nebula-mcp`。组合包与 Python 运行时分别安装。请等待 [GitHub Releases](https://github.com/MuYiYong/nebula-mcp/releases) 中明确包含 DSH 支持和 `--mode runtime` 的发行版；旧发行版不能为 DSH 提供这个入口。
+DSH `0.2.2-rc.5` 或符合 `^0.2.2-rc.5` 的更新版本，可通过 [MuYiYong/dsh-marketplace](https://github.com/MuYiYong/dsh-marketplace) 安装 `dsh-nebula-mcp`。插件首次启动会自动准备受管运行时（便携 Python + 当前 Release 的 wheel/依赖），不需要手动安装 Python；下面保留的手动流程仅用于网络受限、离线或需要固定运行时的场景。
 
-从所选 Release 下载 `install.py` 和 `SHA256SUMS`。运行下列命令计算安装器的 SHA-256，与同一 Release 的 `SHA256SUMS` 中 `install.py` 对应的值核对，不一致时不要运行安装器。
+自动引导会下载平台对应的便携 Python 到用户缓存目录（macOS `~/Library/Caches/nebula-mcp-bootstrap`，Linux `$XDG_CACHE_HOME/nebula-mcp-bootstrap`，Windows `%LOCALAPPDATA%\nebula-mcp-bootstrap`），校验 SHA-256，解压后执行 Release 的 `install.py --mode runtime --yes`，安装到下面的受管目录。首次需要网络，通常 1–3 分钟；失败原因会写入 DSH Host 日志（`[nebula-dsh]`），可重载插件重试。
+
+需要手动或离线安装时，从所选 Release 下载 `install.py` 和 `SHA256SUMS`。运行下列命令计算安装器的 SHA-256，与同一 Release 的 `SHA256SUMS` 中 `install.py` 对应的值核对，不一致时不要运行安装器。
 
 macOS / Linux（Linux 上也可用 `sha256sum install.py`）：
 
@@ -31,9 +33,11 @@ Get-FileHash .\install.py -Algorithm SHA256
 | Linux | `$XDG_DATA_HOME/nebula-mcp`，未设置时为 `~/.local/share/nebula-mcp` |
 | Windows | `%LOCALAPPDATA%\nebula-mcp` |
 
-在 DSH **设置** 的 **Agent 预设** 正下方打开 **悦数图数据库（NebulaGraph 5.x）**。状态卡中的 **检查运行时 / 重启 MCP** 会重新检查安装路径，并按已保存的连接配置启动或重启 MCP。**MCP 已就绪**不代表数据库可达；在新对话中挂载 `nebula_graph`，用 `nebula_test_connection` 测试数据库连接。密码只填在 DSH 设置，保存在本机 DSH 凭据库；请勿在对话内提供密码。完整设置步骤见 [DSH 安装与配置](../README.md#deepseek-harness)。
+在 DSH **设置** 的 **Agent 预设** 正下方打开 **NebulaGraph**，用连接列表中的单选按钮选择当前连接；每行显示连接名称、用户名、地址和测试版本，点击连接行展开设置，修改后自动保存，密码在离开输入框后保存。展开后可点 **测试连接**，它会实际登录该连接并显示服务器版本和耗时，不会切换当前连接；测试成功后行描述显示 `v版本`，版本保存在当前 DSH Web 地址的浏览器本地存储，刷新或重启同一地址后保留；未测试、测试失败或清除站点数据后显示 `-`。点击 **新建连接** 会直接在列表末尾生成一行新连接，行摘要随下方编辑实时更新；字段完整并确认密码后自动保存，没有单独的创建/取消按钮。新行也可先测试当前输入（不落库）；放弃草稿点行尾垃圾桶。页面不显示 Python 运行时或 MCP 状态；安装或升级运行时后，工具不可用时先确认已选中连接，并按上面的步骤检查安装目录。MCP 可用不代表数据库可达；也可在新对话中挂载 `nebula_graph`，用 `nebula_test_connection` 测试。密码只填在 DSH 设置，保存在本机 DSH 凭据库；请勿在对话内提供密码。完整设置步骤见 [DSH 安装与配置](../README.md#deepseek-harness)。
 
-同一系统用户通过本安装器安装 Codex 和 DSH 集成时，两者会共用运行时目录，但各自保存连接配置。只停用 DSH 时，可关闭其 MCP，或先在设置中 **移除连接**（删除连接和密码），再卸载 DSH 组合包。不要为停用单个客户端而删除共用目录或使用 Codex 的 `--uninstall`。
+DSH 当前将 MCP 工具结果展示为文本，不渲染上游 MCP Apps 的交互图/表；查询解释、表格文本和结构化结果仍会保留。
+
+同一系统用户通过本安装器安装 Codex 和 DSH 集成时，两者会共用运行时目录，但各自保存连接配置。只停用 DSH 时，可先在设置中 **移除连接**（删除连接和密码），再卸载 DSH 组合包。不要为停用单个客户端而删除共用目录或使用 Codex 的 `--uninstall`。
 
 ## 本地分发文件夹
 

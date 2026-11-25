@@ -5,13 +5,16 @@
 ## 安装
 
 1. 使用 DSH `0.2.2-rc.5` 或符合 `^0.2.2-rc.5` 的更新版本，在 **插件 → 发现** 从 [MuYiYong/dsh-marketplace](https://github.com/MuYiYong/dsh-marketplace) 安装 `dsh-nebula-mcp`。如未看到 **发现**，先在 **实验性插件** 启用 **自定义插件索引**。
-2. 组合包不含 Python 运行时。请等待 [nebula-mcp Releases](https://github.com/MuYiYong/nebula-mcp/releases) 发布明确包含 DSH 支持和 `--mode runtime` 的版本。以运行 DSH 的系统用户下载该 Release 的 `install.py` 和 `SHA256SUMS`，[核对安装器的 SHA-256](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#dsh-runtime) 后，用 Python 3.10+ 另行安装：macOS / Linux 运行 `python3 install.py --mode runtime`，Windows PowerShell 运行 `py -3 .\install.py --mode runtime`。该模式不检测 Codex，不修改 Codex 的注册、插件或已保存的配置。
+2. 首次启动会自动准备运行时：插件下载便携 Python（python-build-standalone），校验 SHA-256，并执行当前 Release 的 `install.py --mode runtime --yes`，再下载 wheel 和依赖。首次需要网络，通常 1–3 分钟；不需要系统 Python 3.10+，不需要手动运行安装器。已有受管运行时的机器（包括旧版 `install.py` 安装的）会直接复用。网络受限时仍可按 [高级安装与配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#dsh-runtime) 手动运行 `python3 install.py --mode runtime`；`--mode runtime` 不检测/修改 Codex，Release 说明里的 `--mode mcp` 是 Codex 入口，DSH 不要用。
 
 ## 配置和使用
 
-- 打开 DSH **设置**，选择 **Agent 预设** 正下方的 **悦数图数据库（NebulaGraph 5.x）**。每个 DSH 配置档仅支持一个只读连接，该档中的所有 Agent 预设共用。
-- 填写地址（`HOST:PORT`，多个地址用逗号分隔）、用户名、密码和 TLS，勾选 **在当前配置档启用 MCP** 并保存。已保存的密码只留在本机 DSH 凭据库，输入框仍为空。修改地址、用户名或 TLS 时必须重新输入密码。请勿在对话中发送密码。
-- 安装或更新运行时后，在状态卡中点击 **检查运行时 / 重启 MCP**，让 DSH 重新检查安装路径。**MCP 已就绪**仅表示 MCP 工具可用；在新会话里挂载 `nebula_graph`，调用 `nebula_test_connection` 检查数据库连通性。
-- 仅停用时可关闭启用开关；如需删除已保存的连接和密码，先点击 **移除连接**，再按需卸载组合包。同一用户的 Codex 若也通过本项目安装器安装，可能仍在使用共享运行时；请勿仅为移除 DSH 而删除它。
+1. 打开 DSH **设置 → NebulaGraph**（在 **Agent 预设** 下方）。一个配置档最多可保存 20 个命名连接，所有 Agent 预设共用，**一次最多一个生效**。升级前的连接会以 `Default` 显示，沿用原密码和启用状态，可改名。
+2. **连接** 列表的每一行显示连接名称、用户名和数据库地址；用单选按钮切换当前连接，切换立即生效。当前连接由单选选中状态和该连接的强调色区分，不再额外显示“当前”标签。旧 MCP 实例先退出，新实例再启动；若无法确认旧实例已退出，插件会要求重启 DSH，不会同时启动另一个实例。
+3. 点击连接行展开该连接的设置，在行内编辑名称、地址、用户名、密码和 TLS；TLS 默认不启用，需要时再勾选。输入停止约半秒后自动保存，密码在离开输入框后保存；展开后可点 **测试连接**，实际登录该连接并显示服务器版本和耗时，测试不会切换当前连接。测试成功后，该连接行的描述会显示 `v版本`；版本保存在当前 DSH Web 地址的浏览器本地存储，刷新或重启同一地址后仍保留。未测试、测试失败或清除站点数据后显示 `-`，重新测试即可。点击 **新建连接** 会直接在列表末尾出现一行新连接（默认名可改），行摘要随下方名称、用户名和地址实时更新；填写完整并确认密码后自动保存，没有单独的创建/取消按钮。新行也可以先点 **测试连接**（使用当前输入，不落库）；放弃这行草稿点行尾垃圾桶。已有当前连接时不会自动切换，勾选它的单选按钮即可切换；没有当前连接时，创建成功会自动启用。同一集群的多个地址用逗号分隔；不同数据库请分开保存。密码独立保存在本机 DSH 凭据库，不会回显。更改地址、用户名或 TLS 需要重新输入该连接的密码。
+4. 有修改等待自动保存时，展开其他连接和移除会暂时停用；自动保存完成或放弃后即可继续，单选按钮仍可切换当前连接；点击新建会先提交待保存内容再展开新行。**移除连接** 仅删除所选连接及其密码；移除当前连接后没有生效连接，不会自动启用其他连接。
+5. 页面不展示 Python 运行时或 MCP 状态。首次安装后插件会在后台准备运行时，可能需要 1–3 分钟；工具不可用时先确认已选中连接，并在 DSH Host 日志中查看 `[nebula-dsh]` 引导信息。可在连接行内点 **测试连接**，或在新会话里挂载 `nebula_graph`，调用 `nebula_test_connection`。已有受管运行时（包括旧版 `install.py` 安装的）会直接复用；Codex 可能使用同一个 Python 运行时，请勿仅为停用 DSH 而删除它。
+
+DSH 当前把 MCP 工具结果展示为文本，不渲染上游 MCP Apps 的交互图/表；查询解释、表格文本和结构化结果仍会保留。
 
 [完整安装和故障排查](https://github.com/MuYiYong/nebula-mcp#deepseek-harness)

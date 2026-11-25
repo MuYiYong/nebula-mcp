@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createController, registerRoute } from '../index.js'
+import { createController, registerRoute, registerTestRoute, TEST_ROUTE } from '../index.js'
 
 const path = '/api/nebula-dsh/settings'
 const url = `http://localhost${path}`
@@ -28,7 +28,10 @@ function setup(controller) {
   assert.equal(registerRoute(connection, controller), dispose)
   assert.equal(route.path, path)
   assert.deepEqual(route.methods, ['GET', 'POST'])
-  assert.equal(route.requestBody, 'streaming')
+  // Buffered: the bridge attaches a stream body only in streaming mode, and a
+  // GET Request cannot carry a body, which made every settings read fail with
+  // an empty 400. Settings bodies are tiny, so buffering is the correct mode.
+  assert.equal(route.requestBody, 'buffered')
   return {
     admissions,
     fetch(request, peer = browserOwner) {
@@ -122,6 +125,49 @@ test('route preserves UTF-8 code points split across streamed chunks', async () 
   await assertResponse(await fetch(post(body)), 200, { value: '界' })
 })
 
+test('route returns the same redacted multi-connection contract for GET and successful mutations', async t => {
+  const secrets = new Map()
+  let record
+  const credentials = {
+    async readRecord() { return record },
+    async modifyRecord(_key, modify) { record = await modify(record) },
+    async set(ref, value) { secrets.set(ref, value) },
+    async unset(ref) { secrets.delete(ref) },
+    async describe(ref) { return { configured: secrets.has(ref), masked: secrets.get(ref) } },
+  }
+  const controller = createController(credentials, { list: () => [] }, async () => ({ state: 'missing' }))
+  t.after(() => controller.dispose())
+  await controller.start()
+  const { fetch } = setup(controller)
+  const get = () => fetch(new Request(url))
+  const change = body => fetch(post(JSON.stringify(body)))
+  const initial = { revision: '', connections: [], activeId: null, runtime: { state: 'missing' }, mcp: { state: 'disabled' } }
+  await assertResponse(await get(), 200, initial)
+  const fields = { name: 'Graph', addresses: 'graph.example.invalid:9669', username: 'reader', tls: true }
+  const response = await change({ action: 'save', revision: '', ...fields, password: 'test-secret' })
+  assert.equal(response.status, 200)
+  const { revision, connections } = await response.clone().json()
+  const [row] = connections
+  const id = row.id
+  assert.equal(typeof id, 'string')
+  assert.equal(typeof revision, 'string')
+  const saved = { ...initial, revision, connections: [{ ...fields, id, passwordSaved: true }] }
+  await assertResponse(response, 200, saved)
+  await assertResponse(await get(), 200, saved)
+  await assertResponse(await change({ action: 'save', revision, ...fields, name: ' GrApH ', password: 'test-secret' }),
+    400, { error: 'duplicate-name' })
+  await assertResponse(await change({ action: 'activate', revision, id: 'missing' }), 404, { error: 'not-found' })
+  const activating = await change({ action: 'activate', revision, id })
+  const active = { ...saved, revision: (await activating.clone().json()).revision, activeId: id }
+  await assertResponse(activating, 200, active)
+  await assertResponse(await get(), 200, active)
+  const clearing = await change({ action: 'clear', revision: active.revision, id })
+  const cleared = { ...initial, revision: (await clearing.clone().json()).revision }
+  await assertResponse(clearing, 200, cleared)
+  await assertResponse(await get(), 200, cleared)
+  assert.equal(secrets.size, 0)
+})
+
 test('route maps stale revisions and redacts errors from its services', async t => {
   const controller = createController({ async readRecord() { return null } }, {})
   t.after(() => controller.dispose())
@@ -131,4 +177,38 @@ test('route maps stale revisions and redacts errors from its services', async t 
 
   const broken = setup({ async read() { throw new Error('private store path and password') } })
   await assertResponse(await broken.fetch(new Request(url)), 500, { error: 'store' })
+})
+
+test('test route returns probe results to the owner browser only', async () => {
+  let route
+  const owner = { id: 'browser', principal: { kind: 'owner' } }
+  const connection = {
+    browserPeer: { id: 'browser' },
+    admit: () => ({ peer: owner }),
+    fetch: { register(definition) { route = definition; return () => {} } },
+  }
+  const controller = {
+    async test(id) { return { ok: true, version: '5.3.2', latencyMs: 12, id } },
+    async testDraft(draft) { return { ok: true, version: '5.3.4', latencyMs: 9, draft } },
+  }
+  registerTestRoute(connection, controller)
+  assert.equal(route.path, TEST_ROUTE)
+  assert.deepEqual(route.methods, ['POST'])
+  assert.equal(route.requestBody, 'buffered')
+  const post = (body, headers = jsonHeaders) => new Request('http://localhost' + TEST_ROUTE, {
+    method: 'POST', headers, body, duplex: 'half',
+  })
+  const response = await route.fetch(post(JSON.stringify({ id: 'legacy' })))
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true, version: '5.3.2', latencyMs: 12, id: 'legacy' })
+
+  const draft = { addresses: 'db.example.net:9669', username: 'root', password: 'secret', tls: false }
+  const draftResponse = await route.fetch(post(JSON.stringify({ draft })))
+  assert.equal(draftResponse.status, 200)
+  assert.deepEqual(await draftResponse.json(), { ok: true, version: '5.3.4', latencyMs: 9, draft })
+
+  assert.equal((await route.fetch(post(JSON.stringify({ id: 'legacy' }), { 'content-type': 'application/json' }))).status, 415)
+  assert.equal((await route.fetch(post(JSON.stringify({ id: '' })))).status, 400)
+  connection.admit = () => ({ peer: { id: 'other', principal: { kind: 'owner' } } })
+  assert.equal((await route.fetch(post(JSON.stringify({ id: 'legacy' })))).status, 403)
 })

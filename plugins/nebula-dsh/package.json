@@ -1,10 +1,12 @@
 {
   "name": "dsh-nebula-mcp",
-  "version": "0.1.0",
+  "version": "0.1.11",
   "private": true,
   "type": "module",
   "description": "Read-only YueShu graph database (NebulaGraph 5.x) integration for DeepSeek Harness.",
-  "engines": { "dsh": "^0.2.2-rc.5" },
+  "engines": {
+    "dsh": "^0.2.2-rc.5"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -12,14 +14,29 @@
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
-  "files": ["index.js", "runtime.js", "client.js", "cordis.patch.yml", "locale/*.json", "README.md", "icon.svg"],
-  "scripts": { "test": "node --test" },
+  "files": [
+    "index.js",
+    "runtime.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "README.md",
+    "icon.svg",
+    "probe.py"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,
-      "inject": ["@deepseek-ai/dsh-client-ui-settings"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   }
 }

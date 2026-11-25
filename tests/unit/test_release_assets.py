@@ -203,6 +203,10 @@ def test_codex_launcher_runtime_is_a_verbatim_dsh_bundle_copy() -> None:
     launcher = (PLUGIN_ROOT / "bin" / "launch.mjs").read_text(encoding="utf-8")
     assert "from './runtime.mjs'" in launcher
     assert "ensureRuntime" in launcher
+    assert "NEBULA_CONNECTIONS_FILE" in launcher
+    assert "codex-connections.json" in launcher
+    assert "nebula_mcp.connection_store" in launcher
+    assert "hasModule" in launcher
     assert "process.stdout" not in launcher
 
 

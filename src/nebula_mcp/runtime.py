@@ -29,10 +29,11 @@ class RuntimeState:
             code="CONFIGURATION_REQUIRED",
             message="YueShu database configuration is required",
             suggestion=(
-                "Configure the connection under DeepSeek Harness Settings > YueShu graph database"
+                "Configure the connection under DeepSeek Harness Settings > NebulaGraph"
                 if dsh_read_only else
-                "Call nebula_configure_connection with the connection settings; "
-                "or use installer --configure for local no-echo password entry"
+                "Call nebula_configure_connection with the connection settings; the Codex "
+                "marketplace plugin saves them locally and reloads them on restart. "
+                "Installer-managed servers can use --configure for no-echo password entry."
             ),
             variables=problem.variable_names,
         )

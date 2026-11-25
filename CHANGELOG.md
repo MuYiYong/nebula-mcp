@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Codex marketplace connections now persist without an installer. `nebula_configure_connection` accepts an optional connection `name`, writes the configuration to the managed runtime's `codex-connections.json` (mode 0600), and the launcher reloads it on the next MCP start. `nebula_switch_environment` also persists the active connection. Existing installer-managed `config.toml` and `NEBULA_ENVIRONMENTS` paths remain supported.
 - Added the Codex plugin launcher (`plugins/nebula-mcp/bin/launch.mjs`). It reuses the same managed runtime as the DSH bundle, prepares a portable Python in the background on first use, and then starts the stdio MCP server. The Codex plugin can now be installed from the new [codex-marketplace](https://github.com/MuYiYong/codex-marketplace) with `codex plugin add nebula-mcp@codex-marketplace`; the release ZIP and installer plugin mode remain supported.
 - The Codex plugin MCP mapping now uses `node bin/launch.mjs` with the plugin root as cwd. Updated the installer archive allowlist, release packaging, and tests for the two new launcher files.
 - Added the `dsh-nebula-mcp` bundle for DeepSeek Harness `^0.2.2-rc.5`, to be distributed through the [MuYiYong marketplace](https://github.com/MuYiYong/dsh-marketplace). It adds one profile-wide, read-only YueShu graph database (悦数图数据库, NebulaGraph 5.x) connection below Agent presets, with the password held in the local DSH credential store. The current SDK targets YueShu 5.3; it does not support open-source NebulaGraph 3.x.

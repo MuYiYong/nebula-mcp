@@ -30,9 +30,21 @@ codex plugin add nebula-mcp@codex-marketplace
 
 ### 配置连接
 
-安装后直接说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。连接信息保存在当前 MCP 进程内，查询和选图复用同一个数据库 session；密码不会返回，但工具参数可能由宿主留存。
+安装后直接在 Codex 里说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。工具会先测试连接，成功后把配置保存到本机受管运行时数据目录；Codex 下次启动 MCP 时自动加载，不需要运行安装器，也不需要手动编辑 `config.toml`。
 
-需要持久化或本地无回显密码输入时，运行发行安装器 `python3 install.py --configure`。它会把连接写入本机 Codex `config.toml`（包含明文密码），请勿分享该文件或把它加入版本库。
+- 默认保存为 `default`；可在请求中指定 `name`（例如 `dev`、`prod`）保存多套连接。
+- 用 `nebula_list_environments` 查看已保存连接，用 `nebula_switch_environment` 切换；当前选择也会持久化。
+- 密码不会出现在工具输出或错误里；配置文件包含明文密码，权限为 `0600`，请勿分享或提交。
+
+配置文件位置：
+
+| 系统 | 路径 |
+|---|---|
+| macOS | `~/Library/Application Support/nebula-mcp/codex-connections.json` |
+| Linux | `$XDG_DATA_HOME/nebula-mcp/codex-connections.json`，未设置时为 `~/.local/share/nebula-mcp/codex-connections.json` |
+| Windows | `%LOCALAPPDATA%\nebula-mcp\codex-connections.json` |
+
+安装器管理的独立 MCP 条目仍可用 `python3 install.py --configure` 写入 `config.toml`；marketplace 安装不需要这一步。下表是安装器/原生 MCP 模式使用的字段名：
 
 | 字段 | 内容 |
 |---|---|
@@ -45,7 +57,7 @@ codex plugin add nebula-mcp@codex-marketplace
 
 #### 多套环境
 
-`nebula_configure_connection` 每次配置一套连接；需要同时保留多套环境时，按 [高级配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#连接配置命令) 使用 `NEBULA_ENVIRONMENTS`，或在 Codex 中新建独立的 MCP 服务器条目（例如 `dev_nebula`、`prod_nebula`）并分别指向同一个 launcher。
+直接用 `nebula_configure_connection` 的 `name` 参数保存多套连接（例如 `dev`、`prod`，或安装器模式下的 `dev_nebula`、`prod_nebula`），再用 `nebula_switch_environment` 切换；不需要为每套环境新增 MCP 服务器。需要把现有环境变量整体交给 server 时，仍可按 [高级配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#连接配置命令) 使用 `NEBULA_ENVIRONMENTS`。
 
 ### 使用
 

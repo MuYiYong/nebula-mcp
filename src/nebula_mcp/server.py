@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
 import anyio
@@ -13,7 +14,7 @@ from mcp.server.mcpserver import Context
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, SecretStr, ValidationError
 
-from nebula_mcp import __version__
+from nebula_mcp import __version__, connection_store
 from nebula_mcp.config import Settings, load_environments, load_settings
 from nebula_mcp.database import DatabaseGateway
 from nebula_mcp.errors import NebulaMCPError
@@ -56,16 +57,17 @@ MUTATING = ToolAnnotations(
     open_world_hint=True,
 )
 CODEX_INSTRUCTIONS = """Use this server when the user says 使用 Nebula MCP，执行 xxx 语句.
-On CONFIGURATION_REQUIRED ask for connection settings and call nebula_configure_connection;
-never echo passwords. Tool arguments may be recorded by the host; offer local installer
---configure for no-echo password entry. Never invent credentials. Configuration lives in this
-MCP process and replaces the old database session only after a successful connection test.
-Use nebula_list_environments and nebula_switch_environment only for named environments configured
-within this server. They do not switch independent MCP server registrations in the host.
+On CONFIGURATION_REQUIRED ask for connection settings and call nebula_configure_connection with a
+short connection name. Never echo passwords. The Codex marketplace plugin saves configurations
+locally in the managed runtime data directory and reloads them when the MCP server restarts;
+tool arguments may still be recorded by the host. Never invent credentials. A configuration
+replaces the old database session only after a successful connection test.
+Use nebula_list_environments and nebula_switch_environment for named connections managed by this
+server. They do not switch independent MCP server registrations in the host.
 Queries are read-only by default; mutations require the server switch and per-call confirmation.
 """
 DSH_INSTRUCTIONS = """This DSH connection is read-only. If configuration or connection fails,
-direct the user to Settings → YueShu graph database (悦数图数据库). Never ask for a password in chat.
+direct the user to Settings → NebulaGraph. Never ask for a password in chat.
 """
 SHARED_INSTRUCTIONS = """All database operations reuse one session until reconfiguration or shutdown.
 On GRAPH_SELECTION_REQUIRED list graphs with nebula_list_graphs, ask the user to choose a graph,
@@ -125,6 +127,7 @@ def create_server(
     operation_lock = anyio.Lock()
     environments: dict[str, Settings] = {}
     active_environment: str | None = None
+    connections_file: Path | None = None
 
     async def call(operation: Callable[[], Awaitable[OutputModel]]) -> OutputModel:
         # Serialize configuration, graph choice and execution for this stdio session.
@@ -133,13 +136,18 @@ def create_server(
 
     @asynccontextmanager
     async def lifespan(_: MCPServer[RuntimeState]) -> AsyncIterator[RuntimeState]:
-        nonlocal active_state, owned_gateway, environments, active_environment
+        nonlocal active_state, owned_gateway, environments, active_environment, connections_file
         if service is not None:
             active_state = RuntimeState.ready(service)
         else:
             try:
                 if settings is None and not dsh_read_only:
-                    environments, active_environment = load_environments()
+                    raw_file = os.environ.get("NEBULA_CONNECTIONS_FILE")
+                    if raw_file and "NEBULA_ENVIRONMENTS" not in os.environ:
+                        connections_file = Path(raw_file)
+                        environments, active_environment = connection_store.load(connections_file)
+                    else:
+                        environments, active_environment = load_environments()
                 if environments and active_environment is None:
                     active_state = RuntimeState.connect_failed(NebulaMCPError(
                         category="configuration_error", code="ENVIRONMENT_SELECTION_REQUIRED",
@@ -194,7 +202,11 @@ def create_server(
     )
 
     async def replace_connection(
-        configured: Settings, state: RuntimeState, name: str | None,
+        configured: Settings,
+        state: RuntimeState,
+        name: str | None,
+        *,
+        persisted: dict[str, Settings] | None = None,
     ) -> ConnectionOutput:
         nonlocal owned_gateway, active_environment
         candidate = DatabaseGateway(configured)
@@ -203,6 +215,16 @@ def create_server(
             replacement = NebulaService(configured, candidate)
             replacement.environment = name
             result = await replacement.test_connection()
+            if persisted is not None:
+                if connections_file is None:
+                    raise NebulaMCPError(
+                        category="configuration_error",
+                        code="CONNECTION_SAVE_UNAVAILABLE",
+                        message="当前 MCP 进程没有配置持久化路径。",
+                    )
+                await anyio.to_thread.run_sync(
+                    connection_store.save, connections_file, persisted, name
+                )
         except BaseException:
             with anyio.CancelScope(shield=True):
                 await anyio.to_thread.run_sync(candidate.close)
@@ -241,16 +263,23 @@ def create_server(
                     category="configuration_error", code="UNKNOWN_ENVIRONMENT",
                     message="环境名称不存在，请先调用 nebula_list_environments。",
                 )
-            return await replace_connection(environments[name], ctx.request_context.lifespan_context, name)
+            return await replace_connection(
+                environments[name],
+                ctx.request_context.lifespan_context,
+                name,
+                persisted=dict(environments) if connections_file is not None else None,
+            )
         return await call(switch)
 
     @server.tool(
         name="nebula_configure_connection",
         description=(
-            "Configure the database inside MCP without restarting. Connection settings stay in "
-            "this process only; replacing a connection resets its session and graph choice. "
-            "Passwords are never returned, but tool arguments may be stored by the host. "
-            "Use installer --configure for local no-echo password entry instead if preferred."
+            "Configure or replace a named database connection. When the host provides a "
+            "connections file (the Codex marketplace launcher does), the configuration is saved "
+            "locally and loaded after restart; otherwise it lasts for this process. Replacing a "
+            "connection resets its session and graph choice only after a successful connection "
+            "test. Passwords are never returned, but tool arguments may be stored by the host. "
+            "The name defaults to the active connection or 'default'."
         ),
         annotations=ToolAnnotations(
             read_only_hint=False, destructive_hint=False, idempotent_hint=False,
@@ -266,8 +295,10 @@ def create_server(
         connect_timeout_ms: int = 30_000,
         request_timeout_ms: int = 60_000,
         default_schema: str | None = None,
+        name: str | None = None,
     ) -> ConnectionOutput:
         async def configure() -> ConnectionOutput:
+            nonlocal active_environment
             try:
                 if not username.strip() or not password:
                     raise ValueError("Missing credentials")
@@ -281,7 +312,21 @@ def create_server(
                     category="configuration_error", code="INVALID_CONFIGURATION",
                     message="连接配置无效，请检查地址、端口、用户名、密码和超时。",
                 ) from None
-            return await replace_connection(configured, ctx.request_context.lifespan_context, None)
+            target = connection_store.validate_name(name) if name is not None else (
+                active_environment or "default"
+            )
+            updated = dict(environments)
+            updated[target] = configured
+            result = await replace_connection(
+                configured,
+                ctx.request_context.lifespan_context,
+                target,
+                persisted=updated if connections_file is not None else None,
+            )
+            environments.clear()
+            environments.update(updated)
+            active_environment = target
+            return result
 
         return await call(configure)
 

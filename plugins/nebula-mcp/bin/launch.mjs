@@ -13,9 +13,10 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { bootstrapCache, dataRoot, ensureRuntime, inspectRuntime } from './runtime.mjs'
+import { bootstrapCache, dataRoot, ensureRuntime, hasModule, inspectRuntime } from './runtime.mjs'
 
 const PREFIX = '[nebula-mcp]'
+const REQUIRED_MODULE = 'nebula_mcp.connection_store'
 const FIRST_START_WAIT_MS = 25_000
 const PREPARE_TIMEOUT_MS = 15 * 60_000
 const LOCK_STALE_MS = 30 * 60_000
@@ -47,25 +48,33 @@ async function main() {
   }
 
   let state = await inspectRuntime(root)
-  if (state.state !== 'ready') {
+  if (!(await runtimeReady(state))) {
     const cache = bootstrapCache()
     await startBackgroundPrepare(cache)
-    state = await waitForRuntime(root, FIRST_START_WAIT_MS)
-    if (state.state !== 'ready') {
+    state = await waitForRuntime(root, FIRST_START_WAIT_MS, REQUIRED_MODULE)
+    if (!(await runtimeReady(state))) {
       note(`runtime is still being prepared; retry shortly (log: ${join(cache, 'bootstrap.log')})`)
       return 1
     }
   }
-  return runServer(state)
+  return runServer(state, root)
+}
+
+async function runtimeReady(state) {
+  return state.state === 'ready' && await hasModule(state.python, REQUIRED_MODULE)
 }
 
 async function prepare(root) {
   const cache = bootstrapCache()
   await mkdir(cache, { recursive: true })
-  const lock = await acquireLock(cache, root)
-  if (!lock) return inspectRuntime(root)
+  const lock = await acquireLock(cache, root, REQUIRED_MODULE)
+  if (!lock) {
+    const state = await inspectRuntime(root)
+    if (await runtimeReady(state)) return state
+    return { state: 'unsupported', version: state.version }
+  }
   try {
-    return await ensureRuntime({ root, log: note })
+    return await ensureRuntime({ root, log: note, requiredModule: REQUIRED_MODULE })
   } finally {
     await rm(lock, { recursive: true, force: true })
   }
@@ -89,16 +98,18 @@ async function startBackgroundPrepare(cache) {
   }
 }
 
-async function waitForRuntime(root, timeout) {
+async function waitForRuntime(root, timeout, requiredModule) {
   const deadline = Date.now() + timeout
   for (;;) {
     const state = await inspectRuntime(root)
-    if (state.state === 'ready' || Date.now() >= deadline) return state
+    const ready = state.state === 'ready' &&
+      (!requiredModule || await hasModule(state.python, requiredModule))
+    if (ready || Date.now() >= deadline) return state
     await new Promise(resolve => setTimeout(resolve, 1_000))
   }
 }
 
-async function acquireLock(cache, root) {
+async function acquireLock(cache, root, requiredModule) {
   const lock = join(cache, 'bootstrap.lock')
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -114,8 +125,9 @@ async function acquireLock(cache, root) {
         await rm(lock, { recursive: true, force: true })
         continue
       }
-      const state = await waitForRuntime(root, PREPARE_TIMEOUT_MS)
-      if (state.state === 'ready') return undefined
+      const state = await waitForRuntime(root, PREPARE_TIMEOUT_MS, requiredModule)
+      if (state.state === 'ready' && (!requiredModule ||
+          await hasModule(state.python, requiredModule))) return undefined
       if (await isStaleLock(lock)) {
         await rm(lock, { recursive: true, force: true })
         continue
@@ -147,10 +159,14 @@ function isAlive(pid) {
   }
 }
 
-function runServer(state) {
+function runServer(state, root) {
+  const env = { ...process.env }
+  if (!env.NEBULA_CONNECTIONS_FILE) {
+    env.NEBULA_CONNECTIONS_FILE = join(root, 'codex-connections.json')
+  }
   const child = spawn(state.python, ['-I', '-m', 'nebula_mcp'], {
     stdio: 'inherit',
-    env: process.env,
+    env,
     cwd: process.cwd(),
     windowsHide: true,
   })

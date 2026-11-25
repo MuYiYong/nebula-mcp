@@ -19,6 +19,19 @@ export function dataRoot(env = process.env, platform = process.platform, home = 
   return join(resolve(data.replace(/^~(?=\/|$)/, home)), 'nebula-mcp')
 }
 
+export async function hasModule(python, moduleName, run = promisify(execFile)) {
+  try {
+    await run(python, ['-I', '-c', `import ${moduleName}`], {
+      timeout: 6000,
+      maxBuffer: 4096,
+      windowsHide: true,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function inspectRuntime(root = dataRoot(), run = promisify(execFile)) {
   if (!root) return { state: 'missing' }
   let manifest
@@ -105,10 +118,20 @@ export async function ensureRuntime(options = {}) {
   const root = options.root ?? dataRoot(options.env, options.platform, options.home)
   if (!root) return { state: 'missing' }
   const current = await inspectRuntime(root)
-  if (current.state === 'ready') return current
+  if (current.state === 'ready' &&
+      (!options.requiredModule || await hasModule(current.python, options.requiredModule))) {
+    return current
+  }
   if (pending) return pending
   const cache = options.cache ?? bootstrapCache(options.env, options.platform, options.home)
-  pending = bootstrap(root, cache, options).finally(() => { pending = undefined })
+  pending = bootstrap(root, cache, options).then(async state => {
+    if (state.state === 'ready' && options.requiredModule &&
+        !(await hasModule(state.python, options.requiredModule))) {
+      options.log?.(`Runtime ${state.version} is missing ${options.requiredModule}`)
+      return { state: 'unsupported', version: state.version }
+    }
+    return state
+  }).finally(() => { pending = undefined })
   return pending
 }
 

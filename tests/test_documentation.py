@@ -62,6 +62,8 @@ def test_plugin_readme_documents_generic_and_managed_commands() -> None:
     assert "NEBULA_PASSWORD" in text
     assert "不要提交" in text
     assert "安装器" in text
+    assert "codex-connections.json" in text
+    assert "name" in text
 
 
 def test_cli_help_does_not_require_database_configuration() -> None:
@@ -107,6 +109,8 @@ def test_readme_covers_install_configure_use_upgrade_and_uninstall() -> None:
         assert key in text
     assert "CONFIGURATION_REQUIRED" in text
     assert "dev_nebula" in text and "prod_nebula" in text
+    assert "codex-connections.json" in text
+    assert "持久化" in text
 
 
 def test_maintainer_details_are_separate_from_user_readme() -> None:

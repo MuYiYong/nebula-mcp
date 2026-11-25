@@ -53,9 +53,16 @@ python3 install.py --mode plugin
 
 ## 配置连接
 
-安装后，在对话中说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。连接信息仅在 MCP 进程内保存，查询和选图复用同一个数据库 session。密码不会返回，但工具参数可能由宿主留存。
+安装后，在 Codex 里说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。连接测试成功后，配置会保存到受管运行时数据目录的 `codex-connections.json`；下次启动 MCP 时自动加载，不需要安装器或编辑 `config.toml`。
 
-需要持久化或本地无回显密码输入时，运行发行安装器 `python3 install.py --configure`；它会把连接写入本机 Codex `config.toml`（包含明文密码，不要共享该文件，不要提交真实值）。默认只读。
+- 默认保存为 `default`；传入 `name` 可保存多套连接（例如 `dev`、`prod`）。
+- `nebula_list_environments` 查看已保存连接，`nebula_switch_environment` 切换；active 也会保存。
+- 配置文件权限为 `0600`，包含明文密码，请勿共享，也不要提交到版本库。
+- 工具参数仍可能被宿主留存；密码不会回显。
+
+配置文件路径：macOS `~/Library/Application Support/nebula-mcp/codex-connections.json`；Linux `$XDG_DATA_HOME/nebula-mcp/...`（默认 `~/.local/share/...`）；Windows `%LOCALAPPDATA%\nebula-mcp\...`。
+
+默认只读。
 
 | 字段 | 内容 |
 |---|---|
@@ -64,7 +71,7 @@ python3 install.py --mode plugin
 | `NEBULA_PASSWORD` | 数据库密码 |
 | `NEBULA_CONNECT_TIMEOUT_MS` | `30000` |
 | `NEBULA_ALLOW_MUTATIONS` | `false`，默认只读 |
-| `NEBULA_ENVIRONMENT` | 环境名称，例如 `dev_nebula` |
+| `NEBULA_ENVIRONMENT` | 安装器/原生 MCP 模式的环境名称，例如 `dev_nebula` |
 
 ## 使用
 

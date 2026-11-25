@@ -56,6 +56,18 @@ node <插件目录>/bin/launch.mjs --prepare
 
 引导日志位于 `~/Library/Caches/nebula-mcp-bootstrap/bootstrap.log`（macOS）、`$XDG_CACHE_HOME/nebula-mcp-bootstrap/bootstrap.log`（Linux）或 `%LOCALAPPDATA%\nebula-mcp-bootstrap\bootstrap.log`（Windows）。升级使用 `codex plugin marketplace upgrade` 后重新 `codex plugin add`；卸载使用 `codex plugin remove nebula-mcp@codex-marketplace`，不会删除共享运行时。
 
+### 在 Codex 内配置并持久化
+
+在对话中让 Codex 调用 `nebula_configure_connection`，首次默认保存为 `default`；传入 `name` 可保存多套连接。工具会先测试连接，成功后写入受管运行时数据目录的 `codex-connections.json`，下一次 MCP 启动时自动加载。用 `nebula_list_environments` 查看、`nebula_switch_environment` 切换，当前选择也会写入文件。
+
+| 系统 | 配置文件 |
+|---|---|
+| macOS | `~/Library/Application Support/nebula-mcp/codex-connections.json` |
+| Linux | `$XDG_DATA_HOME/nebula-mcp/codex-connections.json`，默认 `~/.local/share/nebula-mcp/codex-connections.json` |
+| Windows | `%LOCALAPPDATA%\nebula-mcp\codex-connections.json` |
+
+文件包含明文密码，写入权限为 `0600`；读取时拒绝符号链接、非常规文件和 POSIX 下 group/world 可读的文件。如果提示 `CONNECTION_FILE_PERMISSIONS`，运行 `chmod 600` 后重试。Codex 插件没有原生设置页，配置入口就是这些 MCP 工具；不需要下载安装器。
+
 ## 本地分发文件夹
 
 Codex 可下载同一 Release 的完整资产（install.py、wheel、plugin ZIP 和 SHA256SUMS），在该目录运行：
@@ -86,11 +98,11 @@ python3 install.py --clear-config
 
 新建独立注册时，安装器会预置 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD` 三个空字段，以及 `NEBULA_CONNECT_TIMEOUT_MS=30000`、`NEBULA_ALLOW_MUTATIONS=false`、`NEBULA_ENVIRONMENT=default`。已有注册的变量不会被覆盖。当前公开的 Codex 插件接口不允许本项目在原生 MCP 设置页添加复制按钮；另一套服务器需在原生页面新建并配置。
 
-连接配置保存在本机 Codex config.toml 中，包含明文密码。不要分享该配置文件。`nebula_configure_connection` 仅临时改变当前进程连接，不保存到此文件；工具参数可能由客户端记录。
+安装器管理的独立注册保存在本机 Codex `config.toml`，包含明文密码，不要分享。marketplace 安装不写 `config.toml`：`nebula_configure_connection` 会保存到上面的 `codex-connections.json`，重启后自动加载；只有没有 `NEBULA_CONNECTIONS_FILE` 的客户端才是进程内临时配置。工具参数可能由客户端记录。
 
 ## 单进程内的多环境配置
 
-如果需要同一进程通过工具切换环境，仍支持以下 JSON 配置；这不是原生页面开关方案，二者择一配置。
+marketplace 插件推荐直接用 `nebula_configure_connection(name=...)` 保存多套连接，再 `nebula_switch_environment` 切换；这些连接会持久化。下面基于 `NEBULA_ENVIRONMENTS` 的 JSON 配置仍支持安装器或原生 MCP 条目，二者择一配置。
 
 原生设置只显示已保存的环境变量，不会根据 MCP 工具自动生成配置字段。已有单连接安装若看不到下面两个字段，需要在同一编辑器中添加。
 
@@ -106,7 +118,7 @@ python3 install.py --clear-config
 
 切换成功会建立新 session，清除此前选图及待执行语句；不会把旧环境待执行语句自动移到新环境。历史图仍可查看；切换后执行的查询使用新环境。结果卡片显示所属环境。配置中含密码，应直接填写到原生设置；它仍按 Codex 的本地配置存储方式保存，工具列表和结果不会返回密码。
 
-这两个环境工具不操作 Codex 原生 MCP 服务器开关。独立的 dev_nebula、prod_nebula 等服务器使用 README 中的切换方式，无需填写 NEBULA_ENVIRONMENTS。
+这两个环境工具不操作 Codex 原生 MCP 服务器开关。marketplace 插件使用命名连接；安装器创建独立 `dev_nebula`、`prod_nebula` 服务器时才需要在原生设置中切换，无需填写 `NEBULA_ENVIRONMENTS`。
 
 ## 安装冲突与卸载
 

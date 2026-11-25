@@ -84,7 +84,8 @@ async def test_configure_persists_and_reloads_in_a_new_server(
     assert document["active"] == "dev"
     assert document["connections"]["dev"]["NEBULA_ADDRESSES"] == "db:9669"
     assert document["connections"]["dev"]["NEBULA_PASSWORD"] == "config-secret"
-    assert stat.S_IMODE(connections_file.stat().st_mode) == 0o600
+    if os.name == "posix":
+        assert stat.S_IMODE(connections_file.stat().st_mode) == 0o600
 
     async with Client(create_server()) as client:
         listed = await client.call_tool("nebula_list_environments", {})

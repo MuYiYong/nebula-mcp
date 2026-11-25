@@ -1,20 +1,13 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 
-const outputDirectory = fileURLToPath(
-  new URL("../../src/nebula_mcp/ui/", import.meta.url),
-);
+const outputDirectory = new URL("../dist/", import.meta.url);
 const names = (await readdir(outputDirectory)).sort();
 if (names.length !== 1 || names[0] !== "query-result.html") {
   throw new Error(`Unexpected UI build outputs: ${names.join(", ")}`);
 }
 
-const outputUrl = new URL("query-result.html", `file://${outputDirectory}/`);
-const generatedHtml = await readFile(outputUrl, "utf8");
+const generatedHtml = await readFile(new URL("query-result.html", outputDirectory), "utf8");
 const html = generatedHtml.replace(/[ \t]+$/gmu, "");
-if (html !== generatedHtml) {
-  await writeFile(outputUrl, html, "utf8");
-}
 const forbidden = ["/Users/", "sourceMappingURL"];
 for (const marker of forbidden) {
   if (html.includes(marker)) {
@@ -42,3 +35,6 @@ for (const url of new Set(urlLiterals)) {
     throw new Error(`UI build contains an unexpected URL literal: ${url}`);
   }
 }
+
+// Publish only the verified single-file artifact into the Python package.
+await writeFile(new URL("../../src/nebula_mcp/ui/query-result.html", import.meta.url), html, "utf8");

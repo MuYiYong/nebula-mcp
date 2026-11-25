@@ -460,7 +460,7 @@ def assert_release_workflow_contract(workflow: str) -> None:
         ["python -m pytest -q", "python -m ruff check --extension in:python .", "python -m mypy src"])
     for command in ["npm test", "npm run typecheck"]:
         assert command in workflow_step_run_lines(validate, "Run UI tests and typecheck")
-    assert "git diff --exit-code -- ../src/nebula_mcp/ui/query-result.html" in (
+    assert "git diff --exit-code HEAD -- ../src/nebula_mcp/ui" in (
         workflow_step_run_lines(validate, "Build UI and verify committed artifact"))
     assets = workflow_step_run_lines(validate, "Build distributions and prepare Release assets")
     assert "(cd dist && shasum -a 256 -c SHA256SUMS)" in assets
@@ -479,7 +479,7 @@ def test_release_workflow_is_ordered_and_least_privileged_at_publish_boundary() 
 @pytest.mark.parametrize("gate", [
     "          python -m pytest -q",
     "          (cd dist && shasum -a 256 -c SHA256SUMS)",
-    "          git diff --exit-code -- ../src/nebula_mcp/ui/query-result.html",
+    "          git diff --exit-code HEAD -- ../src/nebula_mcp/ui",
 ])
 def test_release_workflow_contract_rejects_commented_executable_gate(gate: str) -> None:
     workflow = (ROOT / ".github/workflows/release.yml").read_text()

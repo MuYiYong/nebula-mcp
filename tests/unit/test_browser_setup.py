@@ -60,11 +60,11 @@ async def _wait_closed(url: str) -> None:
     async with _timeout(3):
         while True:
             try:
-                _, writer = await asyncio.open_connection(parts.hostname, parts.port)
+                # A port probe needs no asyncio transport or TCP_NODELAY.
+                with await asyncio.to_thread(socket.create_connection, (parts.hostname, parts.port), 1):
+                    pass
             except ConnectionRefusedError:
                 return
-            writer.close()
-            await writer.wait_closed()
             await asyncio.sleep(0.01)
 
 

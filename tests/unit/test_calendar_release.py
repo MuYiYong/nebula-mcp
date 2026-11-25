@@ -33,7 +33,7 @@ def test_calendar_installer_download_url(tmp_path: Path) -> None:
         prepare_release.ROOT / 'installer/install.py.in', output, 'example/nebula-mcp',
         '0.5.2+build.202609260709', tag='v26.09.26_Build0709',
     )
-    assert "TARGET_TAG = 'v26.09.26_Build0709'" in output.read_text()
+    assert "TARGET_TAG = 'v26.09.26_Build0709'" in output.read_text(encoding="utf-8")
     installer = load_installer_template()
     assert installer.release_asset_url('example/nebula-mcp', '0.5.2+build.202609260709',
                                        'v26.09.26_Build0709').endswith(

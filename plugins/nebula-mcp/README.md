@@ -53,25 +53,31 @@ python3 install.py --mode plugin
 
 ## 配置连接
 
-安装后，在 Codex 里说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。连接测试成功后，配置会保存到受管运行时数据目录的 `codex-connections.json`；下次启动 MCP 时自动加载，不需要安装器或编辑 `config.toml`。
+### 在 Codex 桌面设置中填写
+
+市场插件出现在 **From plugins**，该条目不可编辑。要在桌面 GUI 配置，请先用 [发行安装器](https://github.com/MuYiYong/nebula-mcp/releases) 执行 `python3 install.py --mode mcp` 注册独立的 `nebula`（Windows 使用 `py -3 install.py --mode mcp`）。已有独立条目可直接使用，不需要重新注册或卸载市场插件。
+
+在 **设置 → MCP servers → nebula → 编辑** 中填写下表的环境变量，保存后点 **Restart**。Codex 不支持插件自定义 placeholder，但独立条目可预填空行和默认值。密码由 Codex 明文保存在本机配置中，请勿在对话中发送。独立条目优先于同名市场插件条目，不会读取后者已保存的连接。
+
+| 字段 | 独立 MCP 的初始值 / 填写方式 |
+|---|---|
+| `NEBULA_ADDRESSES` | 留空；填写 `HOST:PORT`，多个地址用逗号分隔 |
+| `NEBULA_USERNAME` | 留空；填写数据库用户名 |
+| `NEBULA_PASSWORD` | 留空；填写数据库密码 |
+| `NEBULA_TLS_ENABLED` | `false`；数据库要求 TLS 时设为 `true` |
+| `NEBULA_CONNECT_TIMEOUT_MS` | `30000`（毫秒） |
+| `NEBULA_ALLOW_MUTATIONS` | `false`，默认只读 |
+| `NEBULA_ENVIRONMENT` | `default`，可改为 `dev_nebula` 等环境名 |
+
+### 仅使用市场插件时的持久化配置
+
+原有 `nebula_configure_connection` 工具仍可用。连接测试成功后，配置会保存到受管运行时数据目录的 `codex-connections.json`；下次启动 MCP 时自动加载。工具参数可能被宿主记录；如不想在对话中提供密码，请用上面的桌面设置。
 
 - 默认保存为 `default`；传入 `name` 可保存多套连接（例如 `dev`、`prod`）。
-- `nebula_list_environments` 查看已保存连接，`nebula_switch_environment` 切换；active 也会保存。
+- `nebula_list_environments` 查看已保存连接，`nebula_switch_environment` 切换；当前选择也会保存。
 - 配置文件权限为 `0600`，包含明文密码，请勿共享，也不要提交到版本库。
-- 工具参数仍可能被宿主留存；密码不会回显。
 
 配置文件路径：macOS `~/Library/Application Support/nebula-mcp/codex-connections.json`；Linux `$XDG_DATA_HOME/nebula-mcp/...`（默认 `~/.local/share/...`）；Windows `%LOCALAPPDATA%\nebula-mcp\...`。
-
-默认只读。
-
-| 字段 | 内容 |
-|---|---|
-| `NEBULA_ADDRESSES` | 数据库地址 `HOST:PORT`；多个地址用逗号分隔 |
-| `NEBULA_USERNAME` | 数据库用户名 |
-| `NEBULA_PASSWORD` | 数据库密码 |
-| `NEBULA_CONNECT_TIMEOUT_MS` | `30000` |
-| `NEBULA_ALLOW_MUTATIONS` | `false`，默认只读 |
-| `NEBULA_ENVIRONMENT` | 安装器/原生 MCP 模式的环境名称，例如 `dev_nebula` |
 
 ## 使用
 

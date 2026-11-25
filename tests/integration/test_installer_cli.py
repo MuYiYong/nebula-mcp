@@ -569,6 +569,7 @@ def test_new_native_registration_prepopulates_connection_fields(tmp_path: Path) 
         "NEBULA_ADDRESSES": "",
         "NEBULA_USERNAME": "",
         "NEBULA_PASSWORD": "",
+        "NEBULA_TLS_ENABLED": "false",
         "NEBULA_CONNECT_TIMEOUT_MS": "30000",
         "NEBULA_ALLOW_MUTATIONS": "false",
         "NEBULA_ENVIRONMENT": "default",
@@ -605,6 +606,51 @@ def test_mcp_mode_adds_native_registration_when_get_resolves_plugin_only(
     assert result == "registration created"
     assert fake_codex.commands[-1][:3] == ["mcp", "add", "nebula"]
     assert "[mcp_servers.nebula]" in fake_codex.config_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("has_native_conflict", [False, True])
+def test_mcp_mode_distinguishes_marketplace_launcher_from_native_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, has_native_conflict: bool
+) -> None:
+    installer = load_installer_template()
+    paths = installer.managed_paths(tmp_path / "data")
+    fake_codex = FakeCodexHarness.empty(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(fake_codex.config_path.parent))
+    payload = {"transport": {"type": "stdio", "command": "node", "args": ["bin/launch.mjs"]}}
+    calls: list[list[str]] = []
+    original_run = installer.run_codex
+
+    def run(command: tuple[str, ...], args: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args == ["mcp", "get", "nebula", "--json"]:
+            return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+        if args == ["-c", "features.plugins=false", "mcp", "get", "nebula", "--json"]:
+            if has_native_conflict:
+                return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+            return subprocess.CompletedProcess(args, 1, "", "No MCP server named 'nebula' found.")
+        return original_run(command, args)
+
+    def register() -> str:
+        return cast(str, installer.ensure_registration(
+            paths=paths,
+            system_python=Path(sys.executable).resolve(),
+            codex_command=fake_codex.command,
+            replace=False,
+            assume_yes=True,
+        ))
+
+    monkeypatch.setattr(installer, "run_codex", run)
+    if has_native_conflict:
+        with pytest.raises(installer.InstallerError, match="already uses another command"):
+            register()
+        assert fake_codex.commands == []
+    else:
+        assert register() == "registration created"
+        assert fake_codex.commands[0][:3] == ["mcp", "add", "nebula"]
+    assert calls[:2] == [
+        ["mcp", "get", "nebula", "--json"],
+        ["-c", "features.plugins=false", "mcp", "get", "nebula", "--json"],
+    ]
 
 
 def test_mcp_mode_adds_native_registration_after_python_path_changes(

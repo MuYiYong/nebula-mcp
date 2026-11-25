@@ -83,6 +83,7 @@ NEW_REGISTRATION_ENVIRONMENT = {
     "NEBULA_ADDRESSES": "",
     "NEBULA_USERNAME": "",
     "NEBULA_PASSWORD": "",
+    "NEBULA_TLS_ENABLED": "false",
     "NEBULA_CONNECT_TIMEOUT_MS": "30000",
     "NEBULA_ALLOW_MUTATIONS": "false",
     "NEBULA_ENVIRONMENT": "default",
@@ -1880,8 +1881,12 @@ def inspect_registration(
     launcher: Path,
     system_python: Path,
     plugin_root: Path | None = None,
+    *,
+    allow_marketplace: bool = False,
+    ignore_plugins: bool = False,
 ) -> RegistrationKind:
-    completed = run_codex(command, ["mcp", "get", SERVER_NAME, "--json"])
+    overrides = ["-c", "features.plugins=false"] if ignore_plugins else []
+    completed = run_codex(command, [*overrides, "mcp", "get", SERVER_NAME, "--json"])
     if completed.returncode != 0:
         if f"No MCP server named '{SERVER_NAME}' found." in completed.stderr:
             return "absent"
@@ -1918,6 +1923,17 @@ def inspect_registration(
                 and transport.get("args") == server.get("args")
             ):
                 return "absent"
+    transport = payload.get("transport")
+    if (
+        allow_marketplace
+        and isinstance(transport, dict)
+        and transport.get("type") == "stdio"
+        and transport.get("command") == "node"
+        and transport.get("args") == ["bin/launch.mjs"]
+    ):
+        # MCP get can resolve the marketplace launcher even with no native entry.
+        # Re-query without plugins; a real same-name native entry remains a conflict.
+        return inspect_registration(command, launcher, system_python, ignore_plugins=True)
     return classify_registration(payload, launcher, system_python)
 
 
@@ -2052,7 +2068,7 @@ def ensure_registration(
     if codex_command is None:
         return manual_command
     registration = inspect_registration(
-        codex_command, paths.launcher, system_python, paths.plugin_root
+        codex_command, paths.launcher, system_python, paths.plugin_root, allow_marketplace=True
     )
     if registration == "managed":
         return "registration preserved"

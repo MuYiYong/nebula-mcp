@@ -66,7 +66,7 @@ node <插件目录>/bin/launch.mjs --prepare
 | Linux | `$XDG_DATA_HOME/nebula-mcp/codex-connections.json`，默认 `~/.local/share/nebula-mcp/codex-connections.json` |
 | Windows | `%LOCALAPPDATA%\nebula-mcp\codex-connections.json` |
 
-文件包含明文密码，写入权限为 `0600`；读取时拒绝符号链接、非常规文件和 POSIX 下 group/world 可读的文件。如果提示 `CONNECTION_FILE_PERMISSIONS`，运行 `chmod 600` 后重试。Codex 插件没有原生设置页，配置入口就是这些 MCP 工具；不需要下载安装器。
+文件包含明文密码，写入权限为 `0600`；读取时拒绝符号链接、非常规文件和 POSIX 下 group/world 可读的文件。如果提示 `CONNECTION_FILE_PERMISSIONS`，运行 `chmod 600` 后重试。市场插件本身没有原生设置页；若不想在对话中配置，请使用下文的独立 MCP 条目。两种入口的连接配置独立保存。
 
 ## 本地分发文件夹
 
@@ -82,7 +82,7 @@ Windows 使用 `py -3`。安装器校验本地资产的 SHA-256；Python 依赖�
 
 常规安装推荐 `--mode mcp`，便于在原生设置中分别配置多个服务器。需要插件模式时运行 `python3 install.py`（不带 `--mode mcp`），Windows 使用 `py -3 install.py`。
 
-默认使用 Codex plugin 模式时，安装器注册 `nebula-mcp@nebula-mcp-local`。没有 Codex CLI 时会输出稍后注册所需的命令。插件条目与独立 MCP 条目是两种入口；只有“服务器”分组中的独立 MCP 条目提供环境变量编辑按钮。已装插件且希望在页面配置时，运行 `python3 install.py --mode mcp` 添加独立条目，然后在 Codex 设置中填写连接字段。
+默认使用 Codex plugin 模式时，安装器注册 `nebula-mcp@nebula-mcp-local`。没有 Codex CLI 时会输出稍后注册所需的命令。插件条目与独立 MCP 条目是两种入口；只有“服务器”分组中的独立 MCP 条目提供环境变量编辑按钮。已装插件且希望在页面配置时，运行 `python3 install.py --mode mcp` 添加独立条目，然后在 **设置 → MCP servers → nebula → 编辑** 中填写连接字段、保存并选择 **Restart**。同名独立条目优先，不需要禁用插件；删除独立条目后，原插件条目可以重新生效。独立条目不读取市场插件的 `codex-connections.json`。
 
 已有独立 `nebula` 注册不会被默认插件安装替换。需要迁移时运行 `python3 install.py --migrate-to-plugin`；非本安装器管理的同名服务器不会被自动删除。
 
@@ -94,11 +94,11 @@ python3 install.py --config-status
 python3 install.py --clear-config
 ```
 
-这些命令只管理名称为 `nebula` 的独立注册：配置使用无回显密码输入，状态只显示字段是否已设置，清除会删除该独立注册。自定义名称的服务器请在原生设置中管理。密码需要保留首尾空格时使用 `--configure`，原生环境变量编辑器可能去掉首尾空格。
+这些命令只管理名称为 `nebula` 的独立注册：配置使用无回显密码输入，状态只显示字段是否已设置，清除会删除该独立注册。自定义名称的服务器请在原生设置中管理。
 
-新建独立注册时，安装器会预置 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD` 三个空字段，以及 `NEBULA_CONNECT_TIMEOUT_MS=30000`、`NEBULA_ALLOW_MUTATIONS=false`、`NEBULA_ENVIRONMENT=default`。已有注册的变量不会被覆盖。当前公开的 Codex 插件接口不允许本项目在原生 MCP 设置页添加复制按钮；另一套服务器需在原生页面新建并配置。
+新建独立注册时，安装器会预置 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD` 三个空字段，以及 `NEBULA_TLS_ENABLED=false`、`NEBULA_CONNECT_TIMEOUT_MS=30000`、`NEBULA_ALLOW_MUTATIONS=false`、`NEBULA_ENVIRONMENT=default`。空字段是可编辑的空值，不是可定制的 placeholder；预填的默认值是已写入的实际参数。升级不会覆盖已管理注册的变量。当前公开的 Codex 插件接口也不允许本项目在原生 MCP 设置页添加复制按钮；另一套服务器需在原生页面新建并配置。
 
-安装器管理的独立注册保存在本机 Codex `config.toml`，包含明文密码，不要分享。marketplace 安装不写 `config.toml`：`nebula_configure_connection` 会保存到上面的 `codex-connections.json`，重启后自动加载；只有没有 `NEBULA_CONNECTIONS_FILE` 的客户端才是进程内临时配置。工具参数可能由客户端记录。
+独立注册的连接参数保存在本机 Codex `config.toml`，包含明文密码，不要分享。市场插件的 `nebula_configure_connection` 不把连接参数写入 Codex `config.toml`，而是保存到上面的 `codex-connections.json`，重启后自动加载。没有 `NEBULA_CONNECTIONS_FILE` 时，通过工具临时配置的连接只存在于当前进程。工具参数可能由客户端记录。
 
 ## 单进程内的多环境配置
 

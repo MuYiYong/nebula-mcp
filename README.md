@@ -30,34 +30,25 @@ codex plugin add nebula-mcp@codex-marketplace
 
 ### 配置连接
 
-安装后直接在 Codex 里说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。工具会先测试连接，成功后把配置保存到本机受管运行时数据目录；Codex 下次启动 MCP 时自动加载，不需要运行安装器，也不需要手动编辑 `config.toml`。
+如果希望在桌面端填写连接信息，请使用独立的 `nebula` MCP 条目。已有该条目可直接编辑；如果只安装了市场插件，请按[安装器方式](#安装器方式离线或-windows-兜底)以 `--mode mcp` 注册一次。然后在 **设置 → MCP servers → nebula → 编辑** 中填写下表的连接环境变量，保存并按提示选择 **Restart**。市场插件的 **From plugins** 条目没有参数编辑按钮；同名独立条目存在时，Codex 优先使用独立条目，不必卸载市场插件。
 
-- 默认保存为 `default`；可在请求中指定 `name`（例如 `dev`、`prod`）保存多套连接。
-- 用 `nebula_list_environments` 查看已保存连接，用 `nebula_switch_environment` 切换；当前选择也会持久化。
-- 密码不会出现在工具输出或错误里；配置文件包含明文密码，权限为 `0600`，请勿分享或提交。
+首次注册时，地址、用户名和密码行留空；默认值会直接预填。Codex 不支持为这些字段设置插件自定义的灰色占位提示。密码会以明文存入本机 Codex 配置，请勿分享该文件或在对话中提供密码。
 
-配置文件位置：
-
-| 系统 | 路径 |
+| 字段 | 初始值 / 填写方式 |
 |---|---|
-| macOS | `~/Library/Application Support/nebula-mcp/codex-connections.json` |
-| Linux | `$XDG_DATA_HOME/nebula-mcp/codex-connections.json`，未设置时为 `~/.local/share/nebula-mcp/codex-connections.json` |
-| Windows | `%LOCALAPPDATA%\nebula-mcp\codex-connections.json` |
+| `NEBULA_ADDRESSES` | 留空；填写 `HOST:PORT`，多个地址用逗号分隔 |
+| `NEBULA_USERNAME` | 留空；填写数据库用户名 |
+| `NEBULA_PASSWORD` | 留空；填写数据库密码 |
+| `NEBULA_TLS_ENABLED` | 默认 `false`；数据库要求 TLS 时改为 `true` |
+| `NEBULA_CONNECT_TIMEOUT_MS` | 预填 `30000`（毫秒） |
+| `NEBULA_ALLOW_MUTATIONS` | 默认 `false`，只读 |
+| `NEBULA_ENVIRONMENT` | 预填 `default`，用于结果标识 |
 
-安装器管理的独立 MCP 条目仍可用 `python3 install.py --configure` 写入 `config.toml`；marketplace 安装不需要这一步。下表是安装器/原生 MCP 模式使用的字段名：
-
-| 字段 | 内容 |
-|---|---|
-| `NEBULA_ADDRESSES` | 数据库地址 `HOST:PORT`；多个地址用逗号分隔 |
-| `NEBULA_USERNAME` | 数据库用户名 |
-| `NEBULA_PASSWORD` | 数据库密码 |
-| `NEBULA_CONNECT_TIMEOUT_MS` | `30000` |
-| `NEBULA_ALLOW_MUTATIONS` | `false`，默认只读 |
-| `NEBULA_ENVIRONMENT` | 环境名称，例如 `dev_nebula`，用于结果标识 |
+仅使用市场插件时，原有 `nebula_configure_connection` 持久化流程仍可用。它会先测试连接，成功后把配置保存到受管运行时目录的 `codex-connections.json`；该配置与独立条目分别保存，不会自动复制。工具参数可能被宿主记录。文件位置及权限见[高级配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#在-codex-内配置并持久化)。
 
 #### 多套环境
 
-直接用 `nebula_configure_connection` 的 `name` 参数保存多套连接（例如 `dev`、`prod`，或安装器模式下的 `dev_nebula`、`prod_nebula`），再用 `nebula_switch_environment` 切换；不需要为每套环境新增 MCP 服务器。需要把现有环境变量整体交给 server 时，仍可按 [高级配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#连接配置命令) 使用 `NEBULA_ENVIRONMENTS`。
+独立条目可按[多环境配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#单进程内的多环境配置)设置 `NEBULA_ENVIRONMENTS`，或分别创建 `dev_nebula`、`prod_nebula` 等原生条目。仅使用市场插件时，可通过 `nebula_configure_connection` 的 `name` 参数保存多套连接，再用 `nebula_switch_environment` 切换。
 
 ### 使用
 

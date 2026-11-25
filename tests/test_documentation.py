@@ -57,7 +57,7 @@ def test_evaluations_define_four_query_routing_workflows() -> None:
 def test_plugin_readme_documents_generic_and_managed_commands() -> None:
     text = (ROOT / "plugins" / "nebula-mcp" / "README.md").read_text(encoding="utf-8")
 
-    assert '"command": "nebula-mcp"' in text
+    assert '"command": "node"' in text
     assert "nebula_configure_connection" in text
     assert "NEBULA_PASSWORD" in text
     assert "不要提交" in text

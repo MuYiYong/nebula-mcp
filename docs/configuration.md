@@ -1,6 +1,6 @@
 # 高级安装与配置
 
-常规安装见 [README](../README.md)：DeepSeek Harness（DSH）使用一个配置档级只读连接；Codex 可单独配置多套环境。两种客户端均面向悦数图数据库（NebulaGraph 5.x），当前 SDK 目标版本为 5.3，不支持开源版 NebulaGraph 3.x。
+常规安装见 [README](../README.md)：DeepSeek Harness（DSH）通过 [dsh-marketplace](https://github.com/MuYiYong/dsh-marketplace) 安装，使用一个配置档级只读连接；Codex 通过 [codex-marketplace](https://github.com/MuYiYong/codex-marketplace) 安装，可单独配置多套环境。两种客户端共用同一插件仓库 `nebula-mcp` 与同一受管运行时，均面向悦数图数据库（NebulaGraph 5.x），当前 SDK 目标版本为 5.3，不支持开源版 NebulaGraph 3.x。
 
 <a id="dsh-runtime"></a>
 ## DeepSeek Harness 运行时
@@ -38,6 +38,23 @@ Get-FileHash .\install.py -Algorithm SHA256
 DSH 当前将 MCP 工具结果展示为文本，不渲染上游 MCP Apps 的交互图/表；查询解释、表格文本和结构化结果仍会保留。
 
 同一系统用户通过本安装器安装 Codex 和 DSH 集成时，两者会共用运行时目录，但各自保存连接配置。只停用 DSH 时，可先在设置中 **移除连接**（删除连接和密码），再卸载 DSH 组合包。不要为停用单个客户端而删除共用目录或使用 Codex 的 `--uninstall`。
+
+## Codex marketplace（推荐）
+
+Codex 侧推荐直接使用独立索引仓库 [MuYiYong/codex-marketplace](https://github.com/MuYiYong/codex-marketplace)。它通过 `git-subdir` 固定 `nebula-mcp` 仓库的 commit，只拉取 `plugins/nebula-mcp` 子目录：
+
+```bash
+codex plugin marketplace add MuYiYong/codex-marketplace
+codex plugin add nebula-mcp@codex-marketplace
+```
+
+要求 Node.js 18+。插件启动命令是 `node bin/launch.mjs`；launcher 与 DSH 共用受管运行时目录，运行时已存在时直接启动，不存在时在后台执行与本安装器相同的运行时准备流程。首次连接如需数分钟，而 Codex 报 MCP 启动超时，可稍后重试或先预热：
+
+```bash
+node <插件目录>/bin/launch.mjs --prepare
+```
+
+引导日志位于 `~/Library/Caches/nebula-mcp-bootstrap/bootstrap.log`（macOS）、`$XDG_CACHE_HOME/nebula-mcp-bootstrap/bootstrap.log`（Linux）或 `%LOCALAPPDATA%\nebula-mcp-bootstrap\bootstrap.log`（Windows）。升级使用 `codex plugin marketplace upgrade` 后重新 `codex plugin add`；卸载使用 `codex plugin remove nebula-mcp@codex-marketplace`，不会删除共享运行时。
 
 ## 本地分发文件夹
 

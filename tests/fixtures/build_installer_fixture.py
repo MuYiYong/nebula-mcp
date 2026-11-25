@@ -64,7 +64,11 @@ def build_fixture_plugin_archive(directory: Path, version: str) -> Path:
             "defaultPrompt": ["Test connection"],
         },
     }
-    mapping = {"mcpServers": {"nebula": {"command": "nebula-mcp", "args": []}}}
+    mapping = {
+        "mcpServers": {
+            "nebula": {"command": "node", "args": ["bin/launch.mjs"], "cwd": "."}
+        }
+    }
     archive_path = directory / f"nebula-mcp-plugin-{version}.zip"
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -73,6 +77,8 @@ def build_fixture_plugin_archive(directory: Path, version: str) -> Path:
         )
         archive.writestr(".mcp.json", json.dumps(mapping, separators=(",", ":")))
         archive.writestr("README.md", "# Fixture plugin\n")
+        archive.writestr("bin/launch.mjs", "// launcher\n")
+        archive.writestr("bin/runtime.mjs", "// runtime\n")
     return archive_path
 
 

@@ -31,7 +31,13 @@ def verify_assets(dist: Path, version: str) -> list[Path]:
         if hashlib.sha256((dist / name).read_bytes()).hexdigest() != digest:
             raise ValueError('asset checksum mismatch')
     with ZipFile(dist / f'nebula-mcp-plugin-{version}.zip') as archive:
-        if set(archive.namelist()) != {'.codex-plugin/plugin.json', '.mcp.json', 'README.md'}:
+        if set(archive.namelist()) != {
+            '.codex-plugin/plugin.json',
+            '.mcp.json',
+            'README.md',
+            'bin/launch.mjs',
+            'bin/runtime.mjs',
+        }:
             raise ValueError('unexpected plugin archive member')
         if archive.testzip() is not None:
             raise ValueError('invalid plugin archive')

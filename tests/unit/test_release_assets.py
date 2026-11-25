@@ -176,7 +176,11 @@ def test_plugin_manifest_mcp_mapping_and_marketplace_are_exact() -> None:
     assert manifest["name"] == "nebula-mcp"
     assert manifest["version"] == "0.6.0"
     assert manifest["mcpServers"] == "./.mcp.json"
-    assert mcp == {"mcpServers": {"nebula": {"command": "nebula-mcp", "args": []}}}
+    assert mcp == {
+        "mcpServers": {
+            "nebula": {"command": "node", "args": ["bin/launch.mjs"], "cwd": "."}
+        }
+    }
     assert marketplace == {
         "name": "nebula-mcp-local",
         "interface": {"displayName": "Nebula MCP Local"},
@@ -189,6 +193,17 @@ def test_plugin_manifest_mcp_mapping_and_marketplace_are_exact() -> None:
             }
         ],
     }
+
+
+def test_codex_launcher_runtime_is_a_verbatim_dsh_bundle_copy() -> None:
+    dsh_runtime = (ROOT / "plugins" / "nebula-dsh" / "runtime.js").read_bytes()
+    codex_runtime = (PLUGIN_ROOT / "bin" / "runtime.mjs").read_bytes()
+    assert codex_runtime == dsh_runtime
+
+    launcher = (PLUGIN_ROOT / "bin" / "launch.mjs").read_text(encoding="utf-8")
+    assert "from './runtime.mjs'" in launcher
+    assert "ensureRuntime" in launcher
+    assert "process.stdout" not in launcher
 
 
 def test_plugin_archive_is_allowlisted_and_deterministic(tmp_path: Path) -> None:
@@ -207,6 +222,8 @@ def test_plugin_archive_is_allowlisted_and_deterministic(tmp_path: Path) -> None
             ".codex-plugin/plugin.json",
             ".mcp.json",
             "README.md",
+            "bin/launch.mjs",
+            "bin/runtime.mjs",
         ]
         assert all(not name.startswith("/") and ".." not in name.split("/") for name in archive.namelist())
         archived_manifest = json.loads(archive.read(".codex-plugin/plugin.json"))

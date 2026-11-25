@@ -23,9 +23,13 @@ PLUGIN_MEMBERS = {
     Path(".codex-plugin/plugin.json"),
     Path(".mcp.json"),
     Path("README.md"),
+    Path("bin/launch.mjs"),
+    Path("bin/runtime.mjs"),
 }
 GENERIC_MCP_MAPPING = {
-    "mcpServers": {"nebula": {"command": "nebula-mcp", "args": []}}
+    "mcpServers": {
+        "nebula": {"command": "node", "args": ["bin/launch.mjs"], "cwd": "."}
+    }
 }
 PRIVATE_PLANNING_MEMBERS = {
     PurePosixPath("task_plan.md"),
@@ -156,7 +160,7 @@ def _validate_plugin_documents(plugin_root: Path, version: str) -> None:
         raise ValueError("plugin manifest name, version, or MCP reference is invalid")
     mapping = _read_json_object(plugin_root / ".mcp.json", "MCP mapping")
     if mapping != GENERIC_MCP_MAPPING:
-        raise ValueError("plugin MCP mapping must use only the generic nebula-mcp command")
+        raise ValueError("plugin MCP mapping must use only the bundled launcher")
     try:
         readme = (plugin_root / "README.md").read_text(encoding="utf-8")
     except OSError as exc:

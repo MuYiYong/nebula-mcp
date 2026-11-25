@@ -1,8 +1,9 @@
 {
   "mcpServers": {
     "nebula": {
-      "command": "nebula-mcp",
-      "args": []
+      "command": "node",
+      "args": ["bin/launch.mjs"],
+      "cwd": "."
     }
   }
 }

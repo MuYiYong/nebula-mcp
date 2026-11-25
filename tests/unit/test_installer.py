@@ -349,10 +349,20 @@ def test_extract_and_render_managed_plugin_use_exact_launcher_paths(tmp_path: Pa
         output.writestr(
             ".mcp.json",
             json.dumps(
-                {"mcpServers": {"nebula": {"command": "nebula-mcp", "args": []}}}
+                {
+                    "mcpServers": {
+                        "nebula": {
+                            "command": "node",
+                            "args": ["bin/launch.mjs"],
+                            "cwd": ".",
+                        }
+                    }
+                }
             ),
         )
         output.writestr("README.md", "# Plugin\n")
+        output.writestr("bin/launch.mjs", "// launcher\n")
+        output.writestr("bin/runtime.mjs", "// runtime\n")
 
     plugin = installer.extract_plugin_archive(archive, tmp_path / "staging")
     system_python = Path(sys.executable).resolve()

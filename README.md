@@ -4,9 +4,78 @@
 
 ## Codex
 
-### 安装
+### 安装（推荐：Codex marketplace）
 
-准备 Python 3.10+、Codex，以及可访问的悦数图数据库 5.3。安装需要访问 GitHub 和 Python 包源。
+需要 Codex CLI 或 Codex 桌面端、Node.js 18+，以及可访问的悦数图数据库 5.3。插件首次启动会自动准备受管运行时（便携 Python + 当前 Release 的 wheel/依赖），不需要系统 Python 3.10+，也不需要手动运行安装器。
+
+```bash
+codex plugin marketplace add MuYiYong/codex-marketplace
+codex plugin add nebula-mcp@codex-marketplace
+```
+
+安装后在 Codex 的插件页确认 **Nebula MCP** 已启用。首次连接需要网络，运行时准备通常 1–3 分钟；如果 Codex 提示 MCP 启动超时，稍等后重新打开对话，或先预热：
+
+```bash
+node <插件目录>/bin/launch.mjs --prepare
+```
+
+### 升级
+
+`codex-marketplace` 固定插件仓库的完整 commit；升级时先刷新 marketplace 再重新安装：
+
+```bash
+codex plugin marketplace upgrade
+codex plugin add nebula-mcp@codex-marketplace
+```
+
+### 配置连接
+
+安装后直接说“使用 Nebula MCP，配置数据库连接”，由 `nebula_configure_connection` 接收地址、账号、密码和 TLS/超时参数。连接信息保存在当前 MCP 进程内，查询和选图复用同一个数据库 session；密码不会返回，但工具参数可能由宿主留存。
+
+需要持久化或本地无回显密码输入时，运行发行安装器 `python3 install.py --configure`。它会把连接写入本机 Codex `config.toml`（包含明文密码），请勿分享该文件或把它加入版本库。
+
+| 字段 | 内容 |
+|---|---|
+| `NEBULA_ADDRESSES` | 数据库地址 `HOST:PORT`；多个地址用逗号分隔 |
+| `NEBULA_USERNAME` | 数据库用户名 |
+| `NEBULA_PASSWORD` | 数据库密码 |
+| `NEBULA_CONNECT_TIMEOUT_MS` | `30000` |
+| `NEBULA_ALLOW_MUTATIONS` | `false`，默认只读 |
+| `NEBULA_ENVIRONMENT` | 环境名称，例如 `dev_nebula`，用于结果标识 |
+
+#### 多套环境
+
+`nebula_configure_connection` 每次配置一套连接；需要同时保留多套环境时，按 [高级配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#连接配置命令) 使用 `NEBULA_ENVIRONMENTS`，或在 Codex 中新建独立的 MCP 服务器条目（例如 `dev_nebula`、`prod_nebula`）并分别指向同一个 launcher。
+
+### 使用
+
+直接输入 GQL：
+
+> 使用 Nebula MCP，执行 MATCH (n) RETURN n LIMIT 20
+
+用自然语言提出查询：
+
+> 使用 Nebula MCP，先查看图和 Schema，再查找指定球员的队友关系。
+
+未选图时，客户端会列出可用图并请你选择；选择后自动继续刚才的查询，不需要重复发送。后续查询沿用所选图。
+
+自然语言、Cypher 或 nGQL 转换可配合客户端的 [gql-query-generator 技能](https://github.com/MuYiYong/nebula-gql-skills)。已有 GQL 可以直接执行，不需要额外安装该技能。
+
+查询结果可显示表格、交互图、图表、PROFILE 和解释。点击点或边查看属性与主键；复制图标复制原始 GQL 并提示“已复制”。自动添加的 PROFILE 不出现在复制的语句中。客户端不支持 MCP Apps 时，仍可查看文本和表格结果。
+
+默认只读。需要写入时，应使用具备相应权限的账号，将 `NEBULA_ALLOW_MUTATIONS` 设为 `true`，重启 MCP，并在每次写入时明确确认。请按业务需要限制数据库账号权限。
+
+### 卸载
+
+```bash
+codex plugin remove nebula-mcp@codex-marketplace
+```
+
+卸载只删除 Codex 的插件缓存，不会删除共享运行时。若确认 DeepSeek Harness 或其他 Codex 插件也不再使用该运行时，再运行发行安装器 `python3 install.py --uninstall`（Windows 为 `py -3 install.py --uninstall`）。如果添加了多个自定义 MCP 条目，先删除共用此程序的条目，再卸载程序。
+
+### 安装器方式（离线或 Windows 兜底）
+
+如果无法使用 Git marketplace，或需要安装器管理的独立 `nebula` MCP 条目，可以继续使用发行安装器。它需要系统 Python 3.10+：
 
 macOS / Linux：
 
@@ -24,73 +93,11 @@ py -3 install.py --mode mcp
 
 安装器会校验并安装程序包，将 `nebula` 注册为独立 MCP 服务器。如果未找到 Codex CLI，按安装器输出的命令完成注册。下载或分享固定版本请使用 [GitHub Releases](https://github.com/MuYiYong/nebula-mcp/releases)。
 
-### 配置连接
-
-如果 Codex 中的 `nebula` 只出现在 **“来自插件”** 分组，且这一行没有齿轮按钮，就不能在该插件条目上编辑连接参数。请先按上面的安装命令运行 `python3 install.py --mode mcp`（Windows 为 `py -3 install.py --mode mcp`）；已经安装过插件也可以运行。完成后重新打开 Codex 设置，在 **插件 → MCP → 服务器** 分组找到带齿轮的独立 `nebula`，点击齿轮，在环境变量中填写：
-
-新建的独立条目会预置以下字段名；地址、用户名和密码留空，其他字段采用表中的默认值。已有条目升级时保留原配置，不会重置这些字段。
-
-| 字段 | 内容 |
-|---|---|
-| `NEBULA_ADDRESSES` | 数据库地址 `HOST:PORT`；多个地址用逗号分隔 |
-| `NEBULA_USERNAME` | 数据库用户名 |
-| `NEBULA_PASSWORD` | 数据库密码 |
-| `NEBULA_CONNECT_TIMEOUT_MS` | `30000` |
-| `NEBULA_ALLOW_MUTATIONS` | `false`，默认只读 |
-| `NEBULA_ENVIRONMENT` | 环境名称，例如 `dev_nebula`，用于结果标识 |
-
-保存并重启该 MCP，然后在新对话中输入“测试 Nebula 连接”。如果仍只看到“来自插件”的条目，先重启 Codex，再确认安装命令没有报错；不要在无齿轮的插件条目上寻找环境变量编辑入口。插件条目可以继续保留，连接配置以“服务器”分组中的独立 `nebula` 为准。
-
-连接信息保存在本机 Codex `config.toml` 中，包含明文密码；页面编辑密码时也可能可见，请勿分享该文件或把它加入版本库。若更希望在终端无回显输入密码，可使用[高级配置命令](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#连接配置命令)，但页面配置不需要运行该命令。
-
-#### 多套环境
-
-每套环境添加一个独立的 STDIO MCP 服务器，名称由你定义，例如 `dev_nebula`、`prod_nebula`、`test_nebula`，不限制为两套。
-
-根据当前公开的 Codex 插件接口，本项目不能在原生 MCP 设置页的 `nebula` 齿轮旁添加“复制集群”按钮。添加另一套环境时，请在同一设置页新建独立 MCP 服务器并按下面步骤配置。
-
-1. 在 MCP 设置中添加自定义服务器，填写一个不重复的名称。
-2. 复制已安装 `nebula` 的命令和参数，复用同一程序，无需重复安装。`launcher.py` 路径应作为一个完整参数，含空格时不要拆开。
-3. 分别填写该环境的地址、用户名和密码；建议 `NEBULA_ENVIRONMENT` 与服务器名称一致。
-4. 保存后按客户端提示重启对应服务器，测试连接。
-
-切换时关闭当前条目、开启目标条目。若同时启用多套，请在查询请求中明确指定服务器名称。尚未配置的条目，以及不再使用的默认或插件条目，应保持关闭。
-
-### 使用
-
-直接输入 GQL：
-
-> 使用 dev_nebula，执行 MATCH (n) RETURN n LIMIT 20
-
-用自然语言提出查询：
-
-> 使用 dev_nebula，先查看图和 Schema，再查找指定球员的队友关系。
-
-未选图时，客户端会列出可用图并请你选择；选择后自动继续刚才的查询，不需要重复发送。后续查询沿用所选图。
-
-自然语言、Cypher 或 nGQL 转换可配合客户端的 [gql-query-generator 技能](https://github.com/MuYiYong/nebula-gql-skills)。已有 GQL 可以直接执行，不需要额外安装该技能。
-
-查询结果可显示表格、交互图、图表、PROFILE 和解释。点击点或边查看属性与主键；复制图标复制原始 GQL 并提示“已复制”。自动添加的 PROFILE 不出现在复制的语句中。客户端不支持 MCP Apps 时，仍可查看文本和表格结果。
-
-默认只读。需要写入时，应使用具备相应权限的账号，将 `NEBULA_ALLOW_MUTATIONS` 设为 `true`，重启 MCP，并在每次写入时明确确认。请按业务需要限制数据库账号权限。
-
-### 升级
-
-重新执行上面的下载与安装命令即可。安装器会保留已管理服务器的连接配置；自定义条目共用同一启动程序，升级后重启相关 MCP。
-
-### 卸载
-
-如添加了多个自定义条目，先在 Codex 中删除共用此程序的条目，再卸载程序。如果 DSH 也使用该安装器提供的运行时，请勿执行以下命令，否则 DSH 也会失去运行时：
-
-```bash
-python3 install.py --uninstall
-```
-
-Windows 使用 `py -3 install.py --uninstall`。卸载会删除受管 MCP 程序；仅删除某个环境时，在 Codex 中删除对应条目即可，不必卸载程序。
-
 ### 常见问题
 
 - **CONFIGURATION_REQUIRED**：程序已启动，但连接信息尚未填完整。检查地址、用户名和密码。
+- **MCP 启动超时**：首次运行需要准备运行时。稍后重试，或按上面的命令预热；仍失败时查看 `bootstrap.log`。
+- **`node` 未找到**：Codex 插件 launcher 需要 Node.js 18+。安装 Node 后重启 Codex，或改用安装器方式。
 - **连接失败**：检查数据库服务、端口、网络和账号权限；保存配置后重启相应 MCP。
 - **没有交互图**：语句需要返回点、边或路径；聚合值通常只显示表格或图表。客户端也需要支持 MCP Apps。
 - **结果被截断**：仅展示了部分数据，解释和统计也仅针对返回部分；请收紧查询范围。

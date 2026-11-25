@@ -64,9 +64,13 @@ PLUGIN_ARCHIVE_MEMBERS = {
     ".codex-plugin/plugin.json",
     ".mcp.json",
     "README.md",
+    "bin/launch.mjs",
+    "bin/runtime.mjs",
 }
 GENERIC_PLUGIN_MCP = {
-    "mcpServers": {SERVER_NAME: {"command": "nebula-mcp", "args": []}}
+    "mcpServers": {
+        SERVER_NAME: {"command": "node", "args": ["bin/launch.mjs"], "cwd": "."}
+    }
 }
 CONNECTION_ENVIRONMENT = (
     "NEBULA_ADDRESSES",
@@ -784,7 +788,7 @@ def _validate_plugin_member(info: object) -> str:
 
 
 def extract_plugin_archive(archive: Path, staging_root: Path) -> Path:
-    """Extract only the three regular allowlisted plugin files."""
+    """Extract only the regular allowlisted plugin files."""
 
     try:
         with ZipFile(archive) as source:

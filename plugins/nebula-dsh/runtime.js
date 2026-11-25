@@ -112,7 +112,7 @@ export async function ensureRuntime(options = {}) {
   return pending
 }
 
-function bootstrapCache(env = process.env, platform = process.platform, home = homedir()) {
+export function bootstrapCache(env = process.env, platform = process.platform, home = homedir()) {
   if (platform === 'darwin') return join(home, 'Library', 'Caches', 'nebula-mcp-bootstrap')
   if (platform === 'win32') return join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'nebula-mcp-bootstrap')
   return join(env.XDG_CACHE_HOME || join(home, '.cache'), 'nebula-mcp-bootstrap')

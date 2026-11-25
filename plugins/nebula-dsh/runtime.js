@@ -75,9 +75,9 @@ export async function inspectRuntime(root = dataRoot(), run = promisify(execFile
 
 
 const INSTALLER = {
-  version: '0.7.0+build.202611260054',
-  url: 'https://github.com/MuYiYong/nebula-mcp/releases/download/v26.11.26_Build0054/install.py',
-  sha256: '5c26d40ebf2645c7e1c79cf9c82f42609b66ccb00e0c5fdc45ce7eec3de5d87a',
+  version: '0.7.0+build.202611260104',
+  url: 'https://github.com/MuYiYong/nebula-mcp/releases/download/v26.11.26_Build0104/install.py',
+  sha256: '83907f59d8272eb3b6ccd436707ff80b89089b8c4a097a1cabfe6120d5fc079f',
 }
 
 // Relocatable CPython distributions used only when no managed runtime exists yet.

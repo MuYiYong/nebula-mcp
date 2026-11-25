@@ -54,17 +54,25 @@ def _origin(url: str) -> str:
     return f"http://{urlsplit(url).netloc}"
 
 
-async def _wait_closed(url: str) -> None:
-    parts = urlsplit(url)
-    assert parts.hostname and parts.port
+@pytest.fixture
+def listeners(monkeypatch: pytest.MonkeyPatch) -> dict[str, browser_setup._Server]:
+    observed: dict[str, browser_setup._Server] = {}
+
+    class ObservedServer(browser_setup._Server):
+        def __init__(self, session: browser_setup._Session) -> None:
+            super().__init__(session)
+            observed[session.path] = self
+
+    monkeypatch.setattr(browser_setup, "_Server", ObservedServer)
+    return observed
+
+
+async def _wait_closed(url: str, listeners: dict[str, browser_setup._Server]) -> None:
+    # A closed Windows loopback port can time out instead of returning ECONNREFUSED.
+    # Observe the real bound socket instead; successful requests still use HTTP.
+    server = listeners[urlsplit(url).path]
     async with _timeout(3):
-        while True:
-            try:
-                # A port probe needs no asyncio transport or TCP_NODELAY.
-                with await asyncio.to_thread(socket.create_connection, (parts.hostname, parts.port), 1):
-                    pass
-            except ConnectionRefusedError:
-                return
+        while server.socket.fileno() != -1:
             await asyncio.sleep(0.01)
 
 
@@ -108,7 +116,10 @@ def urls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return captured
 
 
-def test_assets_state_and_successful_save(urls: list[str]) -> None:
+def test_assets_state_and_successful_save(
+    urls: list[str],
+    listeners: dict[str, browser_setup._Server],
+) -> None:
     async def run() -> None:
         loop = asyncio.get_running_loop()
         saved: list[dict[str, object]] = []
@@ -183,7 +194,7 @@ def test_assets_state_and_successful_save(urls: list[str]) -> None:
             )
             assert status == 200 and json.loads(body) == {"ok": True}
             assert saved == [data, data]
-            await _wait_closed(url)
+            await _wait_closed(url, listeners)
         finally:
             await setup.close()
 
@@ -307,7 +318,10 @@ def test_rejects_invalid_or_oversize_json(urls: list[str], data: bytes, status: 
     asyncio.run(run())
 
 
-def test_reopening_revokes_previous_listener_and_teardown_is_idempotent(urls: list[str]) -> None:
+def test_reopening_revokes_previous_listener_and_teardown_is_idempotent(
+    urls: list[str],
+    listeners: dict[str, browser_setup._Server],
+) -> None:
     async def run() -> None:
         setup = BrowserSetup()
         try:
@@ -315,11 +329,11 @@ def test_reopening_revokes_previous_listener_and_teardown_is_idempotent(urls: li
             await setup.open(_state, _accept)
             await setup.open(_state, _accept)
             assert urlsplit(urls[0]).path != urlsplit(urls[1]).path
-            await _wait_closed(urls[0])
+            await _wait_closed(urls[0], listeners)
             assert (await asyncio.to_thread(_request, urls[1]))[0] == 200
             await setup.close()
             await setup.close()
-            await _wait_closed(urls[1])
+            await _wait_closed(urls[1], listeners)
         finally:
             await setup.close()
 
@@ -328,6 +342,7 @@ def test_reopening_revokes_previous_listener_and_teardown_is_idempotent(urls: li
 
 def test_ttl_stops_listener_without_requests(
     urls: list[str],
+    listeners: dict[str, browser_setup._Server],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(browser_setup, "_TTL", 0.2)
@@ -336,14 +351,17 @@ def test_ttl_stops_listener_without_requests(
         setup = BrowserSetup()
         await setup.open(_state, _accept)
         try:
-            await _wait_closed(urls[0])
+            await _wait_closed(urls[0], listeners)
         finally:
             await setup.close()
 
     asyncio.run(run())
 
 
-def test_active_save_rejects_duplicates_and_reopen_and_survives_close(urls: list[str]) -> None:
+def test_active_save_rejects_duplicates_and_reopen_and_survives_close(
+    urls: list[str],
+    listeners: dict[str, browser_setup._Server],
+) -> None:
     async def run() -> None:
         started = asyncio.Event()
         release = asyncio.Event()
@@ -383,7 +401,7 @@ def test_active_save_rejects_duplicates_and_reopen_and_survives_close(urls: list
             )
             assert status == 409 and json.loads(body)["code"] == "SAVE_IN_PROGRESS"
             close = asyncio.create_task(setup.close())
-            await _wait_closed(url)
+            await _wait_closed(url, listeners)
             assert not close.done()
             with pytest.raises(OSError, match="already in progress"):
                 await asyncio.wait_for(setup.open(_state, save), 1)
@@ -401,6 +419,7 @@ def test_active_save_rejects_duplicates_and_reopen_and_survives_close(urls: list
 
 def test_timed_out_save_may_still_finish(
     urls: list[str],
+    listeners: dict[str, browser_setup._Server],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(browser_setup, "_SAVE_WAIT_SECONDS", 0.1)
@@ -430,7 +449,7 @@ def test_timed_out_save_may_still_finish(
                 await setup.open(_state, save)
             release.set()
             await asyncio.wait_for(committed.wait(), 2)
-            await _wait_closed(urls[0])
+            await _wait_closed(urls[0], listeners)
         finally:
             release.set()
             await setup.close()
@@ -490,6 +509,7 @@ def test_input_deadline_and_number_of_http_workers(
 
 def test_exceptions_do_not_leak_and_opener_failure_closes_listener(
     urls: list[str],
+    listeners: dict[str, browser_setup._Server],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -524,7 +544,7 @@ def test_exceptions_do_not_leak_and_opener_failure_closes_listener(
                 await setup.open(_state, _accept)
             assert len(urls) == 2
             for url in urls:
-                await _wait_closed(url)
+                await _wait_closed(url, listeners)
         finally:
             await setup.close()
 

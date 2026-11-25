@@ -1,10 +1,43 @@
 # 高级安装与配置
 
-常规安装和独立多环境配置见 [README](../README.md)。以下方式按需使用。
+常规安装见 [README](../README.md)：DeepSeek Harness（DSH）使用一个配置档级只读连接；Codex 可单独配置多套环境。两种客户端均面向悦数图数据库（NebulaGraph 5.x），当前 SDK 目标版本为 5.3，不支持开源版 NebulaGraph 3.x。
+
+<a id="dsh-runtime"></a>
+## DeepSeek Harness 运行时
+
+DSH `0.2.2-rc.5` 或符合 `^0.2.2-rc.5` 的更新版本，可通过 [MuYiYong/dsh-marketplace](https://github.com/MuYiYong/dsh-marketplace) 安装 `dsh-nebula-mcp`。组合包与 Python 运行时分别安装。请等待 [GitHub Releases](https://github.com/MuYiYong/nebula-mcp/releases) 中明确包含 DSH 支持和 `--mode runtime` 的发行版；旧发行版不能为 DSH 提供这个入口。
+
+从所选 Release 下载 `install.py` 和 `SHA256SUMS`。运行下列命令计算安装器的 SHA-256，与同一 Release 的 `SHA256SUMS` 中 `install.py` 对应的值核对，不一致时不要运行安装器。
+
+macOS / Linux（Linux 上也可用 `sha256sum install.py`）：
+
+```bash
+shasum -a 256 install.py
+```
+
+Windows PowerShell：
+
+```powershell
+Get-FileHash .\install.py -Algorithm SHA256
+```
+
+校验一致后，从下载目录运行 `python3 install.py --mode runtime`（macOS / Linux）或 `py -3 .\install.py --mode runtime`（Windows PowerShell）。安装器会按同一发行版的清单校验 wheel。已将同一 Release 的 wheel 和校验清单下载到当前目录时，可加 `--assets .`；该模式不需要 Codex 插件 ZIP，Python 依赖仍需网络、缓存或已配置的镜像。
+
+`--mode runtime` 不检测 Codex，不注册或迁移 Codex 的 MCP 服务器或插件，也不修改 Codex 保存的配置。请以运行 DSH 的同一系统用户安装；Linux 上若设置了 `XDG_DATA_HOME`，安装器与 DSH Host 应使用相同的值。DSH 在下列用户级目录检查安装状态，而不是在工作区内查找：
+
+| 系统 | 运行时目录 |
+|---|---|
+| macOS | `~/Library/Application Support/nebula-mcp` |
+| Linux | `$XDG_DATA_HOME/nebula-mcp`，未设置时为 `~/.local/share/nebula-mcp` |
+| Windows | `%LOCALAPPDATA%\nebula-mcp` |
+
+在 DSH **设置** 的 **Agent 预设** 正下方打开 **悦数图数据库（NebulaGraph 5.x）**。状态卡中的 **检查运行时 / 重启 MCP** 会重新检查安装路径，并按已保存的连接配置启动或重启 MCP。**MCP 已就绪**不代表数据库可达；在新对话中挂载 `nebula_graph`，用 `nebula_test_connection` 测试数据库连接。密码只填在 DSH 设置，保存在本机 DSH 凭据库；请勿在对话内提供密码。完整设置步骤见 [DSH 安装与配置](../README.md#deepseek-harness)。
+
+同一系统用户通过本安装器安装 Codex 和 DSH 集成时，两者会共用运行时目录，但各自保存连接配置。只停用 DSH 时，可关闭其 MCP，或先在设置中 **移除连接**（删除连接和密码），再卸载 DSH 组合包。不要为停用单个客户端而删除共用目录或使用 Codex 的 `--uninstall`。
 
 ## 本地分发文件夹
 
-下载同一 Release 的完整资产（install.py、wheel、plugin ZIP 和 SHA256SUMS），在该目录运行：
+Codex 可下载同一 Release 的完整资产（install.py、wheel、plugin ZIP 和 SHA256SUMS），在该目录运行：
 
 ```bash
 python3 install.py --assets . --mode mcp

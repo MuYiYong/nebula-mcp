@@ -464,14 +464,7 @@ def test_default_install_route_registers_plugin_not_standalone_mcp(
     monkeypatch.setattr(installer, "find_codex", lambda: fake_codex.command)
     monkeypatch.setattr(installer, "install_plugin_release", install_plugin)
 
-    installer.install_and_register(
-        argparse.Namespace(
-            yes=True,
-            replace_registration=False,
-            mode="plugin",
-            migrate_to_plugin=False,
-        )
-    )
+    assert installer.main(["--yes"]) == 0
 
     assert [command[:2] for command in fake_codex.commands] == [
         ["mcp", "get"],
@@ -496,17 +489,67 @@ def test_explicit_mcp_mode_keeps_standalone_registration_route(
         lambda *args, **kwargs: create_managed_install(installer, paths.root),
     )
 
-    installer.install_and_register(
-        argparse.Namespace(
-            yes=True,
-            replace_registration=False,
-            mode="mcp",
-            migrate_to_plugin=False,
-        )
-    )
+    assert installer.main(["--yes", "--mode", "mcp"]) == 0
 
     assert fake_codex.commands[-1][:3] == ["mcp", "add", "nebula"]
     assert not any(command[:2] == ["plugin", "add"] for command in fake_codex.commands)
+
+
+@pytest.mark.parametrize("codex_config_exists", [False, True], ids=["no-config", "existing-config"])
+def test_runtime_mode_installs_from_wheel_without_touching_codex(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    codex_config_exists: bool,
+) -> None:
+    installer = load_installer_template()
+    version = "0.3.0"
+    paths = installer.managed_paths(tmp_path / "data")
+    assets = tmp_path / "assets"
+    wheel = build_fixture_wheel(assets, version=version)
+    write_checksum_manifest(assets, [wheel])
+    codex_home = tmp_path / "codex-home"
+    config = codex_home / "config.toml"
+    original_config = (
+        b'[mcp_servers.nebula]\ncommand = "other-launcher"\nargs = []\n'
+        b'[mcp_servers.nebula.env]\nNEBULA_ADDRESSES = "fixture.invalid:9669"\n'
+    )
+    if codex_config_exists:
+        codex_home.mkdir()
+        config.write_bytes(original_config)
+
+    def unexpected_codex_access() -> None:
+        pytest.fail("runtime installation must not look up the Codex CLI or configuration")
+
+    monkeypatch.setenv("PIP_NO_INDEX", "1")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setattr(installer, "default_paths", lambda: paths)
+    monkeypatch.setattr(installer, "TARGET_VERSION", version)
+    monkeypatch.setattr(installer, "find_codex", unexpected_codex_access)
+    monkeypatch.setattr(installer, "codex_config_path", unexpected_codex_access)
+
+    assert installer.main(["--mode", "runtime", "--assets", str(assets), "--yes"]) == 0
+    output = capsys.readouterr()
+    assert f"Installed nebula-mcp {version} in {paths.root}" in output.out
+    assert "Runtime only; no Codex registration was attempted." in output.out
+    assert "Codex CLI was not found" not in output.out
+    assert output.err == ""
+    state = installer.read_state(paths)
+    assert state is not None and state.version == version
+    assert paths.launcher.is_file()
+    assert not paths.marketplace_root.exists()
+    installed = subprocess.run(
+        [state.python, "-I", "-m", "nebula_mcp", "--version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert installed.stdout.strip() == f"nebula-mcp {version}"
+    if codex_config_exists:
+        assert list(codex_home.iterdir()) == [config]
+        assert config.read_bytes() == original_config
+    else:
+        assert not codex_home.exists()
 
 
 def test_new_native_registration_prepopulates_connection_fields(tmp_path: Path) -> None:

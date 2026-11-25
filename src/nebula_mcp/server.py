@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, Literal, TypeVar, cast
@@ -54,12 +55,19 @@ MUTATING = ToolAnnotations(
     idempotent_hint=False,
     open_world_hint=True,
 )
-INSTRUCTIONS = """Use this server when the user says 使用 Nebula MCP，执行 xxx 语句.
+CODEX_INSTRUCTIONS = """Use this server when the user says 使用 Nebula MCP，执行 xxx 语句.
 On CONFIGURATION_REQUIRED ask for connection settings and call nebula_configure_connection;
 never echo passwords. Tool arguments may be recorded by the host; offer local installer
 --configure for no-echo password entry. Never invent credentials. Configuration lives in this
 MCP process and replaces the old database session only after a successful connection test.
-All database operations reuse one session until reconfiguration or process shutdown.
+Use nebula_list_environments and nebula_switch_environment only for named environments configured
+within this server. They do not switch independent MCP server registrations in the host.
+Queries are read-only by default; mutations require the server switch and per-call confirmation.
+"""
+DSH_INSTRUCTIONS = """This DSH connection is read-only. If configuration or connection fails,
+direct the user to Settings → YueShu graph database (悦数图数据库). Never ask for a password in chat.
+"""
+SHARED_INSTRUCTIONS = """All database operations reuse one session until reconfiguration or shutdown.
 On GRAPH_SELECTION_REQUIRED list graphs with nebula_list_graphs, ask the user to choose a graph,
 and pass their answer to nebula_select_graph. It executes SESSION SET GRAPH and resumes the
 pending read-only query automatically; present its result without submitting the query again.
@@ -72,11 +80,10 @@ Use this server for YueShu 5.3 graph discovery and execution.
 If the user supplies explicit GQL, validate and execute that statement unchanged; do not rewrite
 explicit GQL merely to create a graph, and do not create a second visualization query. For a
 natural-language scalar request, preserve scalar intent. For other natural-language, Neo4j Cypher,
-or nGQL requests, discover the target graph and Schema, then use gql-query-generator in the Codex
-client to project Node, Edge, or Path when semantically valid. The server never invokes a model and
+or nGQL requests, discover the target graph and Schema, then use gql-query-generator if available
+to project Node, Edge, or Path when semantically valid. The server never invokes a model and
 never converts another dialect by itself. Auto-execute generated GQL only when the graph is
-explicit, no placeholders remain, and read-only validation passes. Queries are read-only by
-default; mutations require the server switch and per-call confirmation.
+explicit, no placeholders remain, and read-only validation passes.
 Graph and chart results are portable cytoscape-elements-v1 and vega-lite-v5 specifications; the
 graph, analysis, and chart components are independently configurable and default to enabled.
 After a successful query, present every enabled result component together: render a graph only
@@ -92,8 +99,6 @@ Label statements GQL in prose and use untagged code fences. Never use gql or gra
 tags: the host can interpret these as GraphQL. The MCP App labels statements GQL.
 Automatic PROFILE is hidden from displayed/copied GQL; query.executed_statement records the wire
 statement and profile contains the plan. Do not run an extra query to obtain PROFILE.
-Use nebula_list_environments and nebula_switch_environment only for named environments configured
-within this server. They do not switch independent MCP server registrations in the host.
 nebula_render_graph is a legacy compatibility tool; prefer nebula_render_result and do not call
 both for the same result. Never invent a missing graph, chart, or fact.
 """
@@ -102,8 +107,18 @@ both for the same result. Never invent a missing graph, chart, or fact.
 def create_server(
     settings: Settings | None = None,
     service: NebulaService | None = None,
+    *,
+    dsh_read_only: bool = False,
 ) -> MCPServer[RuntimeState]:
     """Create a server without connecting until its lifespan starts."""
+
+    dsh_env = (
+        {name: os.environ[name] for name in (
+            "NEBULA_ADDRESSES", "NEBULA_USERNAME", "NEBULA_PASSWORD", "NEBULA_TLS_ENABLED",
+        ) if name in os.environ}
+        if dsh_read_only else None
+    )
+    instructions = (DSH_INSTRUCTIONS if dsh_read_only else CODEX_INSTRUCTIONS) + SHARED_INSTRUCTIONS
 
     active_state: RuntimeState | None = None
     owned_gateway: DatabaseGateway | None = None
@@ -123,7 +138,7 @@ def create_server(
             active_state = RuntimeState.ready(service)
         else:
             try:
-                if settings is None:
+                if settings is None and not dsh_read_only:
                     environments, active_environment = load_environments()
                 if environments and active_environment is None:
                     active_state = RuntimeState.connect_failed(NebulaMCPError(
@@ -133,9 +148,9 @@ def create_server(
                     ))
                 else:
                     selected = environments.get(active_environment or "") or settings
-                    resolved, problem = (selected, None) if selected is not None else load_settings()
+                    resolved, problem = (selected, None) if selected is not None else load_settings(dsh_env)
                     if problem is not None:
-                        active_state = RuntimeState.unconfigured(problem)
+                        active_state = RuntimeState.unconfigured(problem, dsh_read_only=dsh_read_only)
                     else:
                         assert resolved is not None
                         if not environments:
@@ -172,7 +187,7 @@ def create_server(
         name="nebula-mcp",
         title="YueShu 5.3 MCP",
         description="Local, spec-first access to a remote YueShu graph database",
-        instructions=INSTRUCTIONS,
+        instructions=instructions,
         version=__version__,
         log_level=settings.log_level if settings is not None else "INFO",
         lifespan=lifespan,
@@ -465,6 +480,13 @@ def create_server(
             return await _resource_json(
                 lambda: require_active_state().require_service().get_graph_schema(request)
             )
+
+    if dsh_read_only:
+        for tool in (
+            "nebula_list_environments", "nebula_switch_environment",
+            "nebula_configure_connection", "nebula_execute_mutation",
+        ):
+            server.remove_tool(tool)
 
     return server
 

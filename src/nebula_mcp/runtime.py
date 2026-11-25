@@ -21,12 +21,16 @@ class RuntimeState:
     error: NebulaMCPError | None
 
     @classmethod
-    def unconfigured(cls, problem: ConfigurationProblem) -> RuntimeState:
+    def unconfigured(
+        cls, problem: ConfigurationProblem, *, dsh_read_only: bool = False
+    ) -> RuntimeState:
         error = NebulaMCPError(
             category="configuration_error",
             code="CONFIGURATION_REQUIRED",
             message="YueShu database configuration is required",
             suggestion=(
+                "Configure the connection under DeepSeek Harness Settings > YueShu graph database"
+                if dsh_read_only else
                 "Call nebula_configure_connection with the connection settings; "
                 "or use installer --configure for local no-echo password entry"
             ),

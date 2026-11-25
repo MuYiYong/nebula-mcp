@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "悦数图数据库（NebulaGraph 5.x）",
+    "description": "在设置的 Agent 预设下方配置一个悦数图数据库连接，在 DSH 中运行只读 GQL。需先单独安装 nebula-mcp Python 运行时。"
+  }
+}

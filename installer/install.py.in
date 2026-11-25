@@ -58,7 +58,7 @@ if __name__ == \"__main__\":
 
 CodexCommand = tuple[str, ...]
 RegistrationKind = Literal["absent", "managed", "conflict"]
-InstallMode = Literal["plugin", "mcp"]
+InstallMode = Literal["plugin", "mcp", "runtime"]
 
 PLUGIN_ARCHIVE_MEMBERS = {
     ".codex-plugin/plugin.json",
@@ -2113,6 +2113,10 @@ def install_and_register(args: argparse.Namespace) -> None:
         system_python=system_python,
         local_assets=getattr(args, "assets", None),
     )
+    if mode == "runtime":
+        print(f"Installed nebula-mcp {TARGET_VERSION} in {paths.root}")
+        print("Runtime only; no Codex registration was attempted.")
+        return
     codex_command = find_codex()
     if mode == "plugin":
         registration = ensure_plugin_registration(
@@ -2243,7 +2247,9 @@ def report_error(error: InstallerError) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Install nebula-mcp for Codex")
+    parser = argparse.ArgumentParser(
+        description="Install the nebula-mcp runtime, optionally registering it with Codex."
+    )
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--version", action="store_true")
     actions.add_argument("--uninstall", action="store_true")
@@ -2253,7 +2259,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--yes", action="store_true")
     parser.add_argument("--assets", type=Path, help="Install from a local release folder; verify SHA256SUMS")
     parser.add_argument("--replace-registration", action="store_true")
-    parser.add_argument("--mode", choices=("plugin", "mcp"), default="plugin")
+    parser.add_argument(
+        "--mode",
+        choices=("plugin", "mcp", "runtime"),
+        default="plugin",
+        help=(
+            "Install as a Codex plugin (default), register a standalone Codex MCP server (mcp), "
+            "or install the runtime only without detecting or changing Codex (runtime)."
+        ),
+    )
     parser.add_argument("--migrate-to-plugin", action="store_true")
     return parser
 

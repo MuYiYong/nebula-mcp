@@ -46,3 +46,53 @@ async def test_production_stdio_subprocess_initializes_without_configuration() -
     assert len(tools.tools) == 12
     assert result.is_error is True
     assert result.structured_content["error"]["code"] == "CONFIGURATION_REQUIRED"
+
+
+@pytest.mark.anyio
+async def test_dsh_stdio_exposes_only_restricted_tools_and_ignores_named_environment(
+    tmp_path: Path,
+) -> None:
+    wheel_python = os.getenv("NEBULA_WHEEL_PYTHON")
+    home = tmp_path / "home"
+    codex_home = tmp_path / "codex"
+    home.mkdir()
+    codex_home.mkdir()
+    env = {
+        "HOME": str(home),
+        "CODEX_HOME": str(codex_home),
+        # An unrestricted server would report INVALID_ENVIRONMENTS. This is deliberately
+        # not a usable profile and no endpoint or credentials are supplied.
+        "NEBULA_ENVIRONMENTS": "not valid JSON",
+        "NEBULA_ENVIRONMENT": "ignored_profile",
+        "NEBULA_ALLOW_MUTATIONS": "true",
+    }
+    if not wheel_python:
+        env["PYTHONPATH"] = str(ROOT / "src")
+    params = StdioServerParameters(
+        command=wheel_python or sys.executable,
+        args=["-I", "-m", "nebula_mcp.dsh_stdio"] if wheel_python else ["-m", "nebula_mcp.dsh_stdio"],
+        cwd=tmp_path,
+        env=env,
+    )
+
+    async with Client(params) as client:
+        tools = await client.list_tools()
+        result = await client.call_tool("nebula_test_connection", {})
+
+    # The four tools omitted here are configuration, list/switch environment, and mutation.
+    assert {tool.name for tool in tools.tools} == {
+        "nebula_execute_query",
+        "nebula_get_graph_schema",
+        "nebula_list_graphs",
+        "nebula_render_graph",
+        "nebula_render_result",
+        "nebula_select_graph",
+        "nebula_test_connection",
+        "nebula_validate_gql",
+    }
+    assert result.is_error is True
+    error = result.structured_content["error"]
+    assert error["code"] == "CONFIGURATION_REQUIRED"
+    assert set(error["variables"]) == {"NEBULA_ADDRESSES", "NEBULA_PASSWORD", "NEBULA_USERNAME"}
+    assert "Settings" in error["suggestion"]
+    assert "nebula_configure_connection" not in error["suggestion"]

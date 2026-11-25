@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added the `dsh-nebula-mcp` bundle for DeepSeek Harness `^0.2.2-rc.5`, to be distributed through the [MuYiYong marketplace](https://github.com/MuYiYong/dsh-marketplace). It adds one profile-wide, read-only YueShu graph database (悦数图数据库, NebulaGraph 5.x) connection below Agent presets, with the password held in the local DSH credential store. The current SDK targets YueShu 5.3; it does not support open-source NebulaGraph 3.x.
+- Added a separate `--mode runtime` installation path on macOS, Linux, and Windows. It verifies the release wheel and installs the shared Python runtime without detecting Codex or changing its registrations, plugin state, or saved configuration. Existing Codex installation modes remain unchanged. Use a release that includes the new mode and DSH runtime entry point.
+
 ## 2026-09-26
 
 - Simplified the README around installation, configuration, usage, upgrade, and removal; moved advanced configuration and maintainer guidance to separate documents.

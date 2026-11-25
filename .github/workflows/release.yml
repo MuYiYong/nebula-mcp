@@ -37,6 +37,9 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      - name: Test DeepSeek Harness bundle
+        run: npm test
+        working-directory: plugins/nebula-dsh
       - name: Install UI dependencies
         run: npm ci
         working-directory: ui
@@ -73,6 +76,7 @@ jobs:
           "$RUNNER_TEMP/nebula-wheel/bin/python" -m pip install dist/*.whl
           "$RUNNER_TEMP/nebula-wheel/bin/python" -m pip check
           test "$("$RUNNER_TEMP/nebula-wheel/bin/python" -m nebula_mcp --version)" = "nebula-mcp $PACKAGE_VERSION"
+          test "$("$RUNNER_TEMP/nebula-wheel/bin/python" -I -m nebula_mcp.dsh_stdio --version)" = "nebula-mcp-dsh $PACKAGE_VERSION"
           NEBULA_WHEEL_PYTHON="$RUNNER_TEMP/nebula-wheel/bin/python" python -m pytest tests/protocol/test_stdio.py -q
           python scripts/publish_release.py --verify-only --dist dist --version "$PACKAGE_VERSION" --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
       - name: Upload test artifacts

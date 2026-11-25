@@ -310,8 +310,9 @@ def test_registration_conflict_requires_exact_stdio_launcher(
 
 def test_parser_exposes_only_supported_installer_options() -> None:
     installer = load_installer_template()
+    parser = installer.build_parser()
 
-    assert set(installer.build_parser()._option_string_actions) == {
+    assert set(parser._option_string_actions) == {
         "-h",
         "--help",
         "--version",
@@ -325,8 +326,10 @@ def test_parser_exposes_only_supported_installer_options() -> None:
         "--clear-config",
         "--assets",
     }
-    assert installer.build_parser().parse_args([]).mode == "plugin"
-    assert installer.build_parser().parse_args(["--mode", "mcp"]).mode == "mcp"
+    assert parser.parse_args([]).mode == "plugin"
+    for mode in ("plugin", "mcp", "runtime"):
+        assert parser.parse_args(["--mode", mode]).mode == mode
+    assert "without detecting or changing Codex" in " ".join(parser.format_help().split())
 
 
 def test_extract_and_render_managed_plugin_use_exact_launcher_paths(tmp_path: Path) -> None:

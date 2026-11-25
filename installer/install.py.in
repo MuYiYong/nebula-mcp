@@ -1412,15 +1412,27 @@ def install_plugin_release(
         verify_sha256(archive, expected)
         staged_marketplace = staging / "marketplace"
         staged_plugin = extract_plugin_archive(archive, staged_marketplace)
-        manifest_payload = _read_plugin_json(
-            staged_plugin / ".codex-plugin" / "plugin.json"
-        )
+        manifest_path = staged_plugin / ".codex-plugin" / "plugin.json"
+        manifest_payload = _read_plugin_json(manifest_path)
         if (
             manifest_payload.get("name") != PLUGIN_NAME
             or manifest_payload.get("version") != version
             or manifest_payload.get("mcpServers") != "./.mcp.json"
         ):
             raise _plugin_archive_error()
+        # The installer starts ordinary MCP, not the Git-marketplace browser setup mode.
+        interface = manifest_payload.get("interface")
+        if isinstance(interface, dict) and isinstance(interface.get("defaultPrompt"), list):
+            setup_prompt = "配置悦数连接（打开本机浏览器）"
+            if setup_prompt in interface["defaultPrompt"]:
+                interface["defaultPrompt"] = [
+                    prompt for prompt in interface["defaultPrompt"] if prompt != setup_prompt
+                ]
+                interface["longDescription"] = "连接悦数 5.3 图数据库，执行默认只读的 GQL。"
+                manifest_path.write_text(
+                    json.dumps(manifest_payload, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
         render_managed_mcp_config(staged_plugin, system_python, paths.launcher)
         _write_managed_marketplace(staged_marketplace)
         _secure_plugin_tree(staged_marketplace)

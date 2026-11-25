@@ -110,10 +110,14 @@ def write_release_notes(repository: str, tag: str, output: Path) -> None:
         "GQL results include interactive graph inspection, PROFILE metrics, compact "
         "properties, and copy feedback. Configure multiple independently named MCP "
         "servers such as dev_nebula and prod_nebula.\n\n"
-        "Installation does not require database connection settings. "
-        "Configure them with nebula_configure_connection inside MCP, or run "
-        "python3 install.py --configure for local no-echo password entry. "
-        "Queries and graph selection reuse one database session.\n\n"
+        "**Codex marketplace:** Install Nebula MCP from "
+        "[codex-marketplace](https://github.com/MuYiYong/codex-marketplace). "
+        "In Codex ask ‘配置悦数连接’ to open the local setup page in your browser. "
+        "Enter credentials only on that page and click ‘测试并保存’. "
+        "Return to Codex to query after the connection test passes.\n\n"
+        "**Standalone MCP (optional):** The installer commands below register a standalone "
+        "server. Use the client's settings, or `python3 install.py --configure` for local "
+        "no-echo password entry. Queries and graph selection reuse one database session.\n\n"
         "To install a shared release folder locally: python3 install.py --assets . "
         "Python dependencies still require pip access or a configured cache.\n\n"
         "```bash\n"
@@ -252,6 +256,9 @@ def validate_sdist_archive(sdist: Path, version: str) -> None:
                     source_relative = relative.relative_to(source_root)
                     is_source = source_relative.suffix == ".py" or source_relative in {
                         PurePosixPath("ui/query-result.html"),
+                        PurePosixPath("ui/connection-setup.html"),
+                        PurePosixPath("ui/connection-setup.css"),
+                        PurePosixPath("ui/connection-setup.js"),
                     }
                 except ValueError:
                     pass

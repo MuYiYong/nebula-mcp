@@ -22,19 +22,20 @@ class RuntimeState:
 
     @classmethod
     def unconfigured(
-        cls, problem: ConfigurationProblem, *, dsh_read_only: bool = False
+        cls, problem: ConfigurationProblem, *, dsh_read_only: bool = False,
+        codex_marketplace: bool = False,
     ) -> RuntimeState:
+        if dsh_read_only:
+            suggestion = "Configure the connection under DeepSeek Harness Settings > NebulaGraph"
+        elif codex_marketplace:
+            suggestion = "Ask the user to open the browser via nebula_open_connection_settings."
+        else:
+            suggestion = "Use the MCP client's settings or the installer's --configure mode."
         error = NebulaMCPError(
             category="configuration_error",
             code="CONFIGURATION_REQUIRED",
             message="YueShu database configuration is required",
-            suggestion=(
-                "Configure the connection under DeepSeek Harness Settings > NebulaGraph"
-                if dsh_read_only else
-                "Call nebula_configure_connection with the connection settings; the Codex "
-                "marketplace plugin saves them locally and reloads them on restart. "
-                "Installer-managed servers can use --configure for no-echo password entry."
-            ),
+            suggestion=suggestion,
             variables=problem.variable_names,
         )
         return cls(status="UNCONFIGURED", service=None, error=error)

@@ -51,33 +51,17 @@ python3 install.py --mode plugin
 
 安装器会安装受管运行时，并把插件副本的 `.mcp.json` 改写为安装器生成的绝对 launcher 命令，因此普通用户不需要自行维护 Python 或脚本路径。该模式仍要求系统 Python 3.10+ 用于执行安装器。
 
-## 配置连接
+## 配置连接（Git marketplace）
 
-### 在 Codex 桌面设置中填写
+通过发行安装器注册的条目不使用此页面；配置方式见[高级安装与配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#codex-插件模式)。
 
-市场插件出现在 **From plugins**，该条目不可编辑。要在桌面 GUI 配置，请先用 [发行安装器](https://github.com/MuYiYong/nebula-mcp/releases) 执行 `python3 install.py --mode mcp` 注册独立的 `nebula`（Windows 使用 `py -3 install.py --mode mcp`）。已有独立条目可直接使用，不需要重新注册或卸载市场插件。
+1. 在 Codex 中选择 **配置悦数连接（打开本机浏览器）**，或打开启用该插件的对话，只说「配置悦数连接」。工具不需要参数；如出现工具确认，请确认打开浏览器。
+2. 默认浏览器打开临时本机表单。填写 `HOST:PORT`、用户名和密码，按需启用 TLS，点 **测试并保存**。不要在对话里输入密码。
+3. 页面显示成功后，关闭标签页并回到 Codex 继续查询。新设置即刻用于当前会话；重启和升级后仍会加载。
 
-在 **设置 → MCP servers → nebula → 编辑** 中填写下表的环境变量，保存后点 **Restart**。Codex 不支持插件自定义 placeholder，但独立条目可预填空行和默认值。密码由 Codex 明文保存在本机配置中，请勿在对话中发送。独立条目优先于同名市场插件条目，不会读取后者已保存的连接。
+再次打开时会预填非密码字段；密码留空沿用已保存的密码。测试失败保留旧连接。设置页编辑当前连接，首次使用保存为 `default`。旧版保存的命名连接仍可用 `nebula_list_environments` 和 `nebula_switch_environment` 查看和切换。
 
-| 字段 | 独立 MCP 的初始值 / 填写方式 |
-|---|---|
-| `NEBULA_ADDRESSES` | 留空；填写 `HOST:PORT`，多个地址用逗号分隔 |
-| `NEBULA_USERNAME` | 留空；填写数据库用户名 |
-| `NEBULA_PASSWORD` | 留空；填写数据库密码 |
-| `NEBULA_TLS_ENABLED` | `false`；数据库要求 TLS 时设为 `true` |
-| `NEBULA_CONNECT_TIMEOUT_MS` | `30000`（毫秒） |
-| `NEBULA_ALLOW_MUTATIONS` | `false`，默认只读 |
-| `NEBULA_ENVIRONMENT` | `default`，可改为 `dev_nebula` 等环境名 |
-
-### 仅使用市场插件时的持久化配置
-
-原有 `nebula_configure_connection` 工具仍可用。连接测试成功后，配置会保存到受管运行时数据目录的 `codex-connections.json`；下次启动 MCP 时自动加载。工具参数可能被宿主记录；如不想在对话中提供密码，请用上面的桌面设置。
-
-- 默认保存为 `default`；传入 `name` 可保存多套连接（例如 `dev`、`prod`）。
-- `nebula_list_environments` 查看已保存连接，`nebula_switch_environment` 切换；当前选择也会保存。
-- 配置文件权限为 `0600`，包含明文密码，请勿共享，也不要提交到版本库。
-
-配置文件路径：macOS `~/Library/Application Support/nebula-mcp/codex-connections.json`；Linux `$XDG_DATA_HOME/nebula-mcp/...`（默认 `~/.local/share/...`）；Windows `%LOCALAPPDATA%\nebula-mcp\...`。
+`codex-connections.json` 位于受管运行时数据目录，包含明文密码（POSIX 下权限 `0600`），不会同步，请勿共享。独立的同名 MCP 条目可能优先于插件；那个条目的配置与此页面分开保存。更多信息见 [高级安装与配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#在-codex-内配置并持久化)。
 
 ## 使用
 

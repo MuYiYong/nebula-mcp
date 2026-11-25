@@ -75,9 +75,9 @@ export async function inspectRuntime(root = dataRoot(), run = promisify(execFile
 
 
 const INSTALLER = {
-  version: '0.6.0+build.202611252217',
-  url: 'https://github.com/MuYiYong/nebula-mcp/releases/download/v26.11.25_Build2217/install.py',
-  sha256: 'f7b5d4314797c2c13f094ebb3df2cbb7ce9e99c683b8d5db56cee3e33e08ad50',
+  version: '0.7.0+build.202611260036',
+  url: 'https://github.com/MuYiYong/nebula-mcp/releases/download/v26.11.26_Build0036/install.py',
+  sha256: 'b10328ea44cb4ba02511b467b3abc3ba44875f384633dadb319adb81e6b27bdd',
 }
 
 // Relocatable CPython distributions used only when no managed runtime exists yet.
@@ -186,8 +186,14 @@ async function preparePython(cache, asset, log, platform) {
 
 async function prepareInstaller(cache, log) {
   await mkdir(cache, { recursive: true })
-  const installer = join(cache, 'install.py')
-  if (!(await exists(installer))) await download(INSTALLER.url, installer, INSTALLER.sha256, log)
+  const installer = join(cache, `install-${INSTALLER.version}.py`)
+  try {
+    const cached = await readFile(installer)
+    if (createHash('sha256').update(cached).digest('hex') === INSTALLER.sha256) return installer
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  await download(INSTALLER.url, installer, INSTALLER.sha256, log)
   return installer
 }
 

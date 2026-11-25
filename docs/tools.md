@@ -21,7 +21,8 @@
 
 | 工具 | 使用场景 |
 |---|---|
-| `nebula_configure_connection` | 临时配置当前进程，成功后替换连接，失败保留原连接；不持久化。适用于不便编辑启动配置的客户端。 |
+| `nebula_open_connection_settings` | 仅 Codex marketplace 模式。无参数；经用户同意，打开默认浏览器配置本机连接。测试成功后替换当前连接并保存。 |
+| `nebula_configure_connection` | 仅普通 MCP 模式。为当前进程配置连接；测试失败保留原连接。市场模式不接受凭证工具参数。 |
 | `nebula_list_environments` | 列出此进程通过 NEBULA_ENVIRONMENTS 配置的环境；单环境时仅显示该环境。 |
 | `nebula_switch_environment` | 切换上述命名环境，先验证连接，再清除旧会话的选图和待执行查询；失败保留旧连接。 |
 

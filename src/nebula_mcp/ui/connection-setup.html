@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>配置悦数连接 · Nebula MCP</title>
+  <link rel="stylesheet" href="./connection-setup.css">
+  <script src="./connection-setup.js" defer></script>
+</head>
+<body>
+  <main class="setup">
+    <header class="intro">
+      <p class="eyebrow">Nebula MCP <span aria-hidden="true">/</span> 本机设置</p>
+      <h1>配置悦数连接</h1>
+      <p class="intro-copy">这里只配置当前连接。连接测试成功后才会保存；下次打开 Codex 会自动读取，不用重新输入。</p>
+    </header>
+
+    <aside class="privacy" aria-label="凭据保存方式">
+      <strong>仅在本机配置</strong>
+      <p>密码不经过聊天或模型。连接信息以明文保存在此电脑上的本地文件中，不会同步到其他设备。</p>
+    </aside>
+
+    <p id="setup-status" class="feedback" role="status" tabindex="-1" data-kind="info">正在读取本机连接设置…</p>
+    <button id="retry-state" class="secondary" type="button" hidden>重新读取设置</button>
+    <noscript><p class="feedback" data-kind="error">此页面需要 JavaScript。请启用后从 Codex 重新打开设置页。</p></noscript>
+
+    <form id="connection-form" action="./save" method="post" autocomplete="off" novalidate aria-busy="true">
+      <fieldset id="connection-fields" disabled>
+        <legend>连接参数</legend>
+
+        <div class="field">
+          <label for="addresses">数据库地址（必填）</label>
+          <input type="text" id="addresses" name="addresses" required maxlength="2048" placeholder="db.example.com:9669"
+            autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="next"
+            aria-describedby="addresses-hint" aria-invalid="false">
+          <p id="addresses-hint" class="hint">使用「主机:端口」格式。多个地址用英文逗号分隔。</p>
+          <p id="addresses-error" class="field-error" hidden></p>
+        </div>
+
+        <div class="field">
+          <label for="username">用户名（必填）</label>
+          <input type="text" id="username" name="username" required maxlength="512" placeholder="例如：readonly_user"
+            autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="next"
+            aria-invalid="false">
+          <p id="username-error" class="field-error" hidden></p>
+        </div>
+
+        <div class="field">
+          <label for="password">密码<span id="password-required">（必填）</span></label>
+          <input type="password" id="password" name="password" required maxlength="4096" autocomplete="new-password" enterkeyhint="next"
+            aria-describedby="password-hint" aria-invalid="false">
+          <p id="password-hint" class="hint">请输入数据库密码。</p>
+          <p id="password-warning" class="warning" hidden></p>
+          <p id="password-error" class="field-error" hidden></p>
+        </div>
+
+        <div class="options">
+          <div class="field">
+            <label for="connect_timeout_ms">连接超时（毫秒，必填）</label>
+            <input type="number" id="connect_timeout_ms" name="connect_timeout_ms" required value="30000"
+              min="100" max="300000" step="1" inputmode="numeric" enterkeyhint="done"
+              aria-describedby="timeout-hint" aria-invalid="false">
+            <p id="timeout-hint" class="hint">默认 30000 毫秒（30 秒），可填 100 至 300000 的整数。</p>
+            <p id="connect_timeout_ms-error" class="field-error" hidden></p>
+          </div>
+
+          <div class="field tls">
+            <label class="checkbox" for="tls_enabled">
+              <input type="checkbox" id="tls_enabled" name="tls_enabled" aria-describedby="tls-hint" aria-invalid="false">
+              启用 TLS 加密
+            </label>
+            <p id="tls-hint" class="hint">默认不勾选；若数据库要求 TLS，请勾选。</p>
+            <p id="tls_enabled-error" class="field-error" hidden></p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="save-connection" type="submit">测试并保存</button>
+          <p class="hint">测试未通过时，原有配置不会被覆盖。</p>
+        </div>
+      </fieldset>
+    </form>
+  </main>
+</body>
+</html>

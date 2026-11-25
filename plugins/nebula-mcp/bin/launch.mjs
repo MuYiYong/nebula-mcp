@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { bootstrapCache, dataRoot, ensureRuntime, hasModule, inspectRuntime } from './runtime.mjs'
 
 const PREFIX = '[nebula-mcp]'
-const REQUIRED_MODULE = 'nebula_mcp.connection_store'
+const REQUIRED_MODULE = 'nebula_mcp.browser_setup'
 const FIRST_START_WAIT_MS = 25_000
 const PREPARE_TIMEOUT_MS = 15 * 60_000
 const LOCK_STALE_MS = 30 * 60_000
@@ -164,7 +164,7 @@ function runServer(state, root) {
   if (!env.NEBULA_CONNECTIONS_FILE) {
     env.NEBULA_CONNECTIONS_FILE = join(root, 'codex-connections.json')
   }
-  const child = spawn(state.python, ['-I', '-m', 'nebula_mcp'], {
+  const child = spawn(state.python, ['-I', '-m', 'nebula_mcp', '--codex-marketplace'], {
     stdio: 'inherit',
     env,
     cwd: process.cwd(),

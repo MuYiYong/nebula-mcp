@@ -58,12 +58,10 @@ def test_plugin_readme_documents_generic_and_managed_commands() -> None:
     text = (ROOT / "plugins" / "nebula-mcp" / "README.md").read_text(encoding="utf-8")
 
     assert '"command": "node"' in text
-    assert "nebula_configure_connection" in text
-    assert "NEBULA_PASSWORD" in text
-    assert "不要提交" in text
-    assert "安装器" in text
-    assert "codex-connections.json" in text
-    assert "name" in text
+    for marker in ("配置悦数连接", "测试并保存", "默认浏览器", "不要在对话里输入密码",
+                   "codex-connections.json"):
+        assert marker in text
+    assert "nebula_configure_connection" not in text
 
 
 def test_cli_help_does_not_require_database_configuration() -> None:
@@ -98,19 +96,18 @@ def test_repository_contains_no_runtime_password() -> None:
 
 def test_readme_covers_install_configure_use_upgrade_and_uninstall() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
-    for heading in ("## 安装", "## 配置连接", "### 多套环境", "## 使用", "## 升级", "## 卸载"):
+    for heading in ("## 安装", "## 配置连接", "## 使用", "## 升级", "## 卸载"):
         assert heading in text
     assert "https://github.com/MuYiYong/nebula-mcp/releases/latest/download/install.py" in text
     for command in ("python3 install.py --mode mcp", "py -3 install.py --mode mcp",
                     "python3 install.py --uninstall", "py -3 install.py --uninstall"):
         assert command in text
-    for key in ("NEBULA_ADDRESSES", "NEBULA_USERNAME", "NEBULA_PASSWORD",
-                "NEBULA_CONNECT_TIMEOUT_MS", "NEBULA_ALLOW_MUTATIONS", "NEBULA_ENVIRONMENT"):
-        assert key in text
+    market_setup = text.split("### 配置连接", 1)[1].split("### 使用", 1)[0]
+    for marker in ("配置悦数连接", "默认浏览器", "测试并保存", "密码留空", "重启和插件更新"):
+        assert marker in market_setup
+    assert "NEBULA_PASSWORD" not in market_setup
+    assert "--mode mcp" not in market_setup
     assert "CONFIGURATION_REQUIRED" in text
-    assert "dev_nebula" in text and "prod_nebula" in text
-    assert "codex-connections.json" in text
-    assert "持久化" in text
 
 
 def test_maintainer_details_are_separate_from_user_readme() -> None:

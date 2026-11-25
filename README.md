@@ -8,16 +8,7 @@
 
 需要 Codex CLI 或 Codex 桌面端、Node.js 18+，以及可访问的悦数图数据库 5.3。插件首次启动会自动准备受管运行时（便携 Python + 当前 Release 的 wheel/依赖），不需要系统 Python 3.10+，也不需要手动运行安装器。
 
-```bash
-codex plugin marketplace add MuYiYong/codex-marketplace
-codex plugin add nebula-mcp@codex-marketplace
-```
-
-安装后在 Codex 的插件页确认 **Nebula MCP** 已启用。首次连接需要网络，运行时准备通常 1–3 分钟；如果 Codex 提示 MCP 启动超时，稍等后重新打开对话，或先预热：
-
-```bash
-node <插件目录>/bin/launch.mjs --prepare
-```
+在 Codex 的 **插件** 页面打开已添加的 **codex-marketplace**，找到 **Nebula MCP** 并点击安装、启用。首次启动需要网络，运行时准备通常 1–3 分钟；如果 Codex 提示 MCP 启动超时，稍等后重新打开对话或重启 Codex。尚未添加索引时，见 [codex-marketplace](https://github.com/MuYiYong/codex-marketplace) 的安装说明。
 
 ### 升级
 
@@ -30,25 +21,13 @@ codex plugin add nebula-mcp@codex-marketplace
 
 ### 配置连接
 
-如果希望在桌面端填写连接信息，请使用独立的 `nebula` MCP 条目。已有该条目可直接编辑；如果只安装了市场插件，请按[安装器方式](#安装器方式离线或-windows-兜底)以 `--mode mcp` 注册一次。然后在 **设置 → MCP servers → nebula → 编辑** 中填写下表的连接环境变量，保存并按提示选择 **Restart**。市场插件的 **From plugins** 条目没有参数编辑按钮；同名独立条目存在时，Codex 优先使用独立条目，不必卸载市场插件。
+1. 在 **Nebula MCP** 插件中选择 **配置悦数连接（打开本机浏览器）**，或在对话中只说「配置悦数连接」。如果 Codex 弹出工具确认，请确认打开浏览器。
+2. 默认浏览器会打开一个临时本机页面。填写数据库地址（`HOST:PORT`，多个地址用逗号分隔）、用户名和密码；数据库要求 TLS 时再启用。点击 **测试并保存**。
+3. 成功后关闭标签页，回到 Codex 直接查询。不需要重启 MCP，也不需要终端、安装器或编辑配置文件。
 
-首次注册时，地址、用户名和密码行留空；默认值会直接预填。Codex 不支持为这些字段设置插件自定义的灰色占位提示。密码会以明文存入本机 Codex 配置，请勿分享该文件或在对话中提供密码。
+重新打开页面时会预填地址、用户名和选项，不会显示密码；密码留空会沿用已保存的密码。只有连接测试通过才会替换当前连接。配置在 Codex 重启和插件更新后仍可用，只保存在本机，不随账号同步。密码请只填在本机设置页。
 
-| 字段 | 初始值 / 填写方式 |
-|---|---|
-| `NEBULA_ADDRESSES` | 留空；填写 `HOST:PORT`，多个地址用逗号分隔 |
-| `NEBULA_USERNAME` | 留空；填写数据库用户名 |
-| `NEBULA_PASSWORD` | 留空；填写数据库密码 |
-| `NEBULA_TLS_ENABLED` | 默认 `false`；数据库要求 TLS 时改为 `true` |
-| `NEBULA_CONNECT_TIMEOUT_MS` | 预填 `30000`（毫秒） |
-| `NEBULA_ALLOW_MUTATIONS` | 默认 `false`，只读 |
-| `NEBULA_ENVIRONMENT` | 预填 `default`，用于结果标识 |
-
-仅使用市场插件时，原有 `nebula_configure_connection` 持久化流程仍可用。它会先测试连接，成功后把配置保存到受管运行时目录的 `codex-connections.json`；该配置与独立条目分别保存，不会自动复制。工具参数可能被宿主记录。文件位置及权限见[高级配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#在-codex-内配置并持久化)。
-
-#### 多套环境
-
-独立条目可按[多环境配置](https://github.com/MuYiYong/nebula-mcp/blob/main/docs/configuration.md#单进程内的多环境配置)设置 `NEBULA_ENVIRONMENTS`，或分别创建 `dev_nebula`、`prod_nebula` 等原生条目。仅使用市场插件时，可通过 `nebula_configure_connection` 的 `name` 参数保存多套连接，再用 `nebula_switch_environment` 切换。
+如果曾按旧版说明注册独立的 `nebula` MCP 条目，它可能优先于市场插件。请先在 Codex 设置中确认启用的是市场插件提供的 `nebula`，再调用「配置悦数连接」。独立条目仍可使用，但配置不会自动迁移。文件权限、已保存的命名环境和独立条目见[高级安装与配置](docs/configuration.md#在-codex-内配置并持久化)。
 
 ### 使用
 
@@ -98,10 +77,10 @@ py -3 install.py --mode mcp
 
 ### 常见问题
 
-- **CONFIGURATION_REQUIRED**：程序已启动，但连接信息尚未填完整。检查地址、用户名和密码。
-- **MCP 启动超时**：首次运行需要准备运行时。稍后重试，或按上面的命令预热；仍失败时查看 `bootstrap.log`。
+- **CONFIGURATION_REQUIRED**：在 Codex 中说「配置悦数连接」，然后在本机浏览器填写连接信息。
+- **MCP 启动超时**：首次运行需要准备运行时。稍后重试；仍失败见[高级安装与配置](docs/configuration.md#codex-marketplace推荐)。
 - **`node` 未找到**：Codex 插件 launcher 需要 Node.js 18+。安装 Node 后重启 Codex，或改用安装器方式。
-- **连接失败**：检查数据库服务、端口、网络和账号权限；保存配置后重启相应 MCP。
+- **连接失败**：检查数据库服务、端口、网络、TLS 和账号权限，再点 **测试并保存**。市场插件保存成功后无需重启。
 - **没有交互图**：语句需要返回点、边或路径；聚合值通常只显示表格或图表。客户端也需要支持 MCP Apps。
 - **结果被截断**：仅展示了部分数据，解释和统计也仅针对返回部分；请收紧查询范围。
 - **安装时提示同名冲突**：先检查已有条目的启动命令，避免覆盖其他程序的配置。

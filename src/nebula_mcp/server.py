@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
@@ -15,6 +15,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, SecretStr, ValidationError
 
 from nebula_mcp import __version__, connection_store
+from nebula_mcp.browser_setup import BrowserSetup
 from nebula_mcp.config import Settings, load_environments, load_settings
 from nebula_mcp.database import DatabaseGateway
 from nebula_mcp.errors import NebulaMCPError
@@ -56,15 +57,22 @@ MUTATING = ToolAnnotations(
     idempotent_hint=False,
     open_world_hint=True,
 )
-CODEX_INSTRUCTIONS = """Use this server when the user says 使用 Nebula MCP，执行 xxx 语句.
-On CONFIGURATION_REQUIRED ask for connection settings and call nebula_configure_connection with a
-short connection name. Never echo passwords. The Codex marketplace plugin saves configurations
-locally in the managed runtime data directory and reloads them when the MCP server restarts;
-tool arguments may still be recorded by the host. Never invent credentials. A configuration
-replaces the old database session only after a successful connection test.
-Use nebula_list_environments and nebula_switch_environment for named connections managed by this
-server. They do not switch independent MCP server registrations in the host.
-Queries are read-only by default; mutations require the server switch and per-call confirmation.
+LOCAL_INSTRUCTIONS = """This is a local stdio server. If configuration is required, direct the
+user to their MCP client's settings or the installer's --configure mode for no-echo password entry.
+Never ask the user to paste a password in chat.
+"""
+CODEX_SETUP_INSTRUCTIONS = """Use nebula_open_connection_settings (no arguments) when the user
+asks to configure or edit the YueShu connection (e.g. 配置悦数连接). On a configuration or connection
+error, offer to open the settings. Only open the browser with the user's permission or explicit
+request. Never ask for or relay passwords, addresses or usernames in chat. Do not use other tools
+or the shell to set or read credentials. Tell the user to fill in their own system browser and
+click 测试并保存; wait for them to confirm before querying again. Successful saves take effect in
+this session and on restart; failed tests keep the previous connection. If the browser did not
+open or the page expired, offer to run the same tool again. This is not a Codex account setting.
+"""
+NON_DSH_INSTRUCTIONS = """Use nebula_list_environments and nebula_switch_environment for named
+connections managed by this server, not independent MCP registrations. Queries are read-only by
+default; mutations require the server switch and per-call confirmation.
 """
 DSH_INSTRUCTIONS = """This DSH connection is read-only. If configuration or connection fails,
 direct the user to Settings → NebulaGraph. Never ask for a password in chat.
@@ -111,6 +119,7 @@ def create_server(
     service: NebulaService | None = None,
     *,
     dsh_read_only: bool = False,
+    codex_marketplace: bool = False,
 ) -> MCPServer[RuntimeState]:
     """Create a server without connecting until its lifespan starts."""
 
@@ -120,7 +129,14 @@ def create_server(
         ) if name in os.environ}
         if dsh_read_only else None
     )
-    instructions = (DSH_INSTRUCTIONS if dsh_read_only else CODEX_INSTRUCTIONS) + SHARED_INSTRUCTIONS
+    if dsh_read_only and codex_marketplace:
+        raise ValueError("DSH and Codex marketplace modes are mutually exclusive")
+    instructions = (
+        DSH_INSTRUCTIONS if dsh_read_only else
+        (CODEX_SETUP_INSTRUCTIONS if codex_marketplace else LOCAL_INSTRUCTIONS)
+        + NON_DSH_INSTRUCTIONS
+    ) + SHARED_INSTRUCTIONS
+    browser_setup = BrowserSetup() if codex_marketplace else None
 
     active_state: RuntimeState | None = None
     owned_gateway: DatabaseGateway | None = None
@@ -158,7 +174,9 @@ def create_server(
                     selected = environments.get(active_environment or "") or settings
                     resolved, problem = (selected, None) if selected is not None else load_settings(dsh_env)
                     if problem is not None:
-                        active_state = RuntimeState.unconfigured(problem, dsh_read_only=dsh_read_only)
+                        active_state = RuntimeState.unconfigured(
+                            problem, dsh_read_only=dsh_read_only, codex_marketplace=codex_marketplace
+                        )
                     else:
                         assert resolved is not None
                         if not environments:
@@ -177,10 +195,13 @@ def create_server(
         try:
             yield active_state
         finally:
-            if owned_gateway is not None:
-                await anyio.to_thread.run_sync(owned_gateway.close)
-                owned_gateway = None
-            active_state = None
+            with anyio.CancelScope(shield=True):
+                if browser_setup is not None:
+                    await browser_setup.close()
+                if owned_gateway is not None:
+                    await anyio.to_thread.run_sync(owned_gateway.close)
+                    owned_gateway = None
+                active_state = None
 
     def require_active_state() -> RuntimeState:
         if active_state is None:
@@ -207,6 +228,7 @@ def create_server(
         name: str | None,
         *,
         persisted: dict[str, Settings] | None = None,
+        commit: Callable[[], Awaitable[None]] | None = None,
     ) -> ConnectionOutput:
         nonlocal owned_gateway, active_environment
         candidate = DatabaseGateway(configured)
@@ -215,28 +237,119 @@ def create_server(
             replacement = NebulaService(configured, candidate)
             replacement.environment = name
             result = await replacement.test_connection()
-            if persisted is not None:
-                if connections_file is None:
-                    raise NebulaMCPError(
-                        category="configuration_error",
-                        code="CONNECTION_SAVE_UNAVAILABLE",
-                        message="当前 MCP 进程没有配置持久化路径。",
-                    )
-                await anyio.to_thread.run_sync(
-                    connection_store.save, connections_file, persisted, name
-                )
-        except BaseException:
+            # Keep the disk commit and the active session swap together during cancellation.
             with anyio.CancelScope(shield=True):
+                if commit is not None:
+                    await commit()
+                elif persisted is not None:
+                    if connections_file is None:
+                        raise NebulaMCPError(
+                            category="configuration_error",
+                            code="CONNECTION_SAVE_UNAVAILABLE",
+                            message="当前 MCP 进程没有配置持久化路径。",
+                        )
+                    await anyio.to_thread.run_sync(
+                        connection_store.save, connections_file, persisted, name
+                    )
+                previous = owned_gateway
+                owned_gateway = candidate
+                active_environment = name
+                state.service, state.error, state.status = replacement, None, "READY"
+                if previous is not None:
+                    with suppress(Exception):
+                        await anyio.to_thread.run_sync(previous.close)
+        except BaseException:
+            with anyio.CancelScope(shield=True), suppress(Exception):
                 await anyio.to_thread.run_sync(candidate.close)
             raise
-        with anyio.CancelScope(shield=True):
-            previous = owned_gateway
-            owned_gateway = candidate
-            active_environment = name
-            state.service, state.error, state.status = replacement, None, "READY"
-            if previous is not None:
-                await anyio.to_thread.run_sync(previous.close)
         return result
+
+    if browser_setup is not None:
+        @server.tool(
+            name="nebula_open_connection_settings",
+            title="配置悦数连接",
+            description=(
+                "Open the YueShu connection settings in the user's system browser. Takes no "
+                "arguments. Only call when the user asks for settings or agrees to open them. "
+                "Never collect connection settings or credentials in chat."
+            ),
+            annotations=ToolAnnotations(
+                read_only_hint=False, destructive_hint=False,
+                idempotent_hint=False, open_world_hint=False,
+            ),
+        )
+        async def open_connection_settings() -> dict[str, str]:
+            path = connections_file
+            if path is None:
+                return {"status": "unavailable", "message": "请从 Codex 市场启动悦数插件。"}
+            try:
+                snapshot = await anyio.to_thread.run_sync(connection_store.load, path)
+            except NebulaMCPError:
+                return {
+                    "status": "unavailable",
+                    "message": "无法读取本机连接设置，请检查设置文件是否损坏或权限是否正确。",
+                }
+            saved, selected = snapshot
+            if saved and selected is None:
+                return {
+                    "status": "selection_required",
+                    "message": "请先选择一个已保存的连接，再打开设置页。",
+                }
+            current = saved.get(selected or "")
+
+            async def read_state() -> dict[str, object]:
+                return {
+                    "addresses": current.addresses if current else "",
+                    "username": current.username if current else "",
+                    "has_password": current is not None,
+                    "tls_enabled": current.tls_enabled if current else False,
+                    "connect_timeout_ms": current.connect_timeout_ms if current else 30_000,
+                }
+
+            async def save(payload: dict[str, object]) -> tuple[int, dict[str, object]]:
+                nonlocal environments
+                configured, error = _browser_connection_settings(payload, current)
+                if configured is None:
+                    return 400, error
+                name = selected or "default"
+                updated = {**saved, name: configured}
+
+                async def commit() -> None:
+                    await anyio.to_thread.run_sync(
+                        connection_store.save_if_current, path, snapshot, updated, name
+                    )
+
+                async with operation_lock:
+                    try:
+                        await replace_connection(
+                            configured, require_active_state(), name, commit=commit
+                        )
+                    except NebulaMCPError as exc:
+                        if exc.code == "CONNECTION_SETTINGS_CHANGED":
+                            return 409, {"ok": False, "code": exc.code, "message": str(exc)}
+                        if exc.category == "configuration_error":
+                            return 500, {
+                                "ok": False, "code": "CONNECTION_SAVE_FAILED",
+                                "message": "无法保存本机设置，原有连接没有改变。",
+                            }
+                        return 422, {
+                            "ok": False, "code": "CONNECTION_TEST_FAILED",
+                            "message": "连接测试失败。请检查地址、账号、密码和 TLS 设置。原有连接没有改变。",
+                        }
+                    environments = updated
+                return 200, {"ok": True}
+
+            try:
+                await browser_setup.open(read_state, save)
+            except OSError:
+                return {
+                    "status": "unavailable",
+                    "message": "无法打开本机设置页。请确认系统已设置默认浏览器；若正在测试，请稍后重试。",
+                }
+            return {
+                "status": "browser_opened",
+                "message": "请在系统浏览器填写连接信息，点击「测试并保存」。成功后回到 Codex 继续查询。",
+            }
 
     @server.tool(
         name="nebula_list_environments",
@@ -258,24 +371,42 @@ def create_server(
     )
     async def switch_environment(name: str, ctx: Context[RuntimeState, Any]) -> ConnectionOutput:
         async def switch() -> ConnectionOutput:
-            if name not in environments:
+            nonlocal environments
+            path = connections_file
+            commit: Callable[[], Awaitable[None]] | None = None
+            if codex_marketplace and path is not None:
+                snapshot = await anyio.to_thread.run_sync(connection_store.load, path)
+                choices = snapshot[0]
+
+                async def commit_switch() -> None:
+                    await anyio.to_thread.run_sync(
+                        connection_store.save_if_current, path, snapshot, choices, name
+                    )
+
+                commit = commit_switch
+            else:
+                choices = environments
+            if name not in choices:
                 raise NebulaMCPError(
                     category="configuration_error", code="UNKNOWN_ENVIRONMENT",
                     message="环境名称不存在，请先调用 nebula_list_environments。",
                 )
-            return await replace_connection(
-                environments[name],
+            result = await replace_connection(
+                choices[name],
                 ctx.request_context.lifespan_context,
                 name,
-                persisted=dict(environments) if connections_file is not None else None,
+                persisted=dict(choices) if path is not None and commit is None else None,
+                commit=commit,
             )
+            environments = choices
+            return result
         return await call(switch)
 
     @server.tool(
         name="nebula_configure_connection",
         description=(
             "Configure or replace a named database connection. When the host provides a "
-            "connections file (the Codex marketplace launcher does), the configuration is saved "
+            "connections file, the configuration is saved "
             "locally and loaded after restart; otherwise it lasts for this process. Replacing a "
             "connection resets its session and graph choice only after a successful connection "
             "test. Passwords are never returned, but tool arguments may be stored by the host. "
@@ -532,8 +663,42 @@ def create_server(
             "nebula_configure_connection", "nebula_execute_mutation",
         ):
             server.remove_tool(tool)
+    elif codex_marketplace:
+        server.remove_tool("nebula_configure_connection")
 
     return server
+
+
+def _browser_connection_settings(
+    payload: dict[str, object], current: Settings | None
+) -> tuple[Settings | None, dict[str, object]]:
+    def invalid(field: str, message: str) -> tuple[None, dict[str, object]]:
+        return None, {"ok": False, "code": "INVALID_CONFIGURATION", "field": field, "message": message}
+
+    if payload.keys() != {"addresses", "username", "password", "tls_enabled", "connect_timeout_ms"}:
+        return None, {"ok": False, "code": "INVALID_CONFIGURATION", "message": "设置表单无效。"}
+    addresses, username, password = payload["addresses"], payload["username"], payload["password"]
+    tls, timeout = payload["tls_enabled"], payload["connect_timeout_ms"]
+    if not isinstance(addresses, str) or not addresses.strip() or len(addresses) > 2048:
+        return invalid("addresses", "请输入有效的数据库地址，例如 db.example.com:9669。")
+    if not isinstance(username, str) or not username.strip() or len(username) > 512:
+        return invalid("username", "请输入用户名。")
+    if not isinstance(password, str) or len(password) > 4096 or (not password and current is None):
+        return invalid("password", "请输入有效的密码。")
+    if not isinstance(tls, bool):
+        return invalid("tls_enabled", "请选择是否启用 TLS。")
+    if type(timeout) is not int or not 100 <= timeout <= 300_000:
+        return invalid("connect_timeout_ms", "连接超时必须是 100 到 300000 之间的整数（毫秒）。")
+    if not password and current is not None:
+        password = current.password.get_secret_value()
+    try:
+        base = current.model_dump() if current is not None else {}
+        return Settings.model_validate({
+            **base, "addresses": addresses, "username": username, "password": SecretStr(password),
+            "tls_enabled": tls, "connect_timeout_ms": timeout,
+        }), {}
+    except (ValueError, ValidationError):
+        return invalid("addresses", "请检查服务器地址和端口（格式为 host:port）。")
 
 
 def _service(ctx: Context[RuntimeState, Any]) -> NebulaService:

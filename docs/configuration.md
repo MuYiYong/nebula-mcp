@@ -58,7 +58,7 @@ node <插件目录>/bin/launch.mjs --prepare
 
 ### 在 Codex 内配置并持久化
 
-在对话中让 Codex 调用 `nebula_configure_connection`，首次默认保存为 `default`；传入 `name` 可保存多套连接。工具会先测试连接，成功后写入受管运行时数据目录的 `codex-connections.json`，下一次 MCP 启动时自动加载。用 `nebula_list_environments` 查看、`nebula_switch_environment` 切换，当前选择也会写入文件。
+安装市场插件后，在 Codex 中选择「配置悦数连接（打开本机浏览器）」或只说「配置悦数连接」。无参数工具 `nebula_open_connection_settings` 打开默认浏览器中的临时本机页面，只监听 `127.0.0.1`。在页面点击 **测试并保存**，只有实际连接测试通过才会保存，并立即替换当前会话的连接。首次保存为 `default`；已有连接会预填可编辑字段，密码留空表示保留。页面过期后请在 Codex 中重新打开。旧版保存的命名连接仍可用 `nebula_list_environments` 查看、`nebula_switch_environment` 切换。
 
 | 系统 | 配置文件 |
 |---|---|
@@ -66,7 +66,7 @@ node <插件目录>/bin/launch.mjs --prepare
 | Linux | `$XDG_DATA_HOME/nebula-mcp/codex-connections.json`，默认 `~/.local/share/nebula-mcp/codex-connections.json` |
 | Windows | `%LOCALAPPDATA%\nebula-mcp\codex-connections.json` |
 
-文件包含明文密码，写入权限为 `0600`；读取时拒绝符号链接、非常规文件和 POSIX 下 group/world 可读的文件。如果提示 `CONNECTION_FILE_PERMISSIONS`，运行 `chmod 600` 后重试。市场插件本身没有原生设置页；若不想在对话中配置，请使用下文的独立 MCP 条目。两种入口的连接配置独立保存。
+文件包含明文密码，写入权限为 `0600`；读取时拒绝符号链接、非常规文件和 POSIX 下 group/world 可读的文件。如果提示 `CONNECTION_FILE_PERMISSIONS`，运行 `chmod 600` 后重试。设置页不是 Codex 原生 MCP 表单；密码只填在浏览器，不要发送到对话。市场插件和独立 MCP 条目的连接配置分别保存。
 
 ## 本地分发文件夹
 
@@ -98,11 +98,11 @@ python3 install.py --clear-config
 
 新建独立注册时，安装器会预置 `NEBULA_ADDRESSES`、`NEBULA_USERNAME`、`NEBULA_PASSWORD` 三个空字段，以及 `NEBULA_TLS_ENABLED=false`、`NEBULA_CONNECT_TIMEOUT_MS=30000`、`NEBULA_ALLOW_MUTATIONS=false`、`NEBULA_ENVIRONMENT=default`。空字段是可编辑的空值，不是可定制的 placeholder；预填的默认值是已写入的实际参数。升级不会覆盖已管理注册的变量。当前公开的 Codex 插件接口也不允许本项目在原生 MCP 设置页添加复制按钮；另一套服务器需在原生页面新建并配置。
 
-独立注册的连接参数保存在本机 Codex `config.toml`，包含明文密码，不要分享。市场插件的 `nebula_configure_connection` 不把连接参数写入 Codex `config.toml`，而是保存到上面的 `codex-connections.json`，重启后自动加载。没有 `NEBULA_CONNECTIONS_FILE` 时，通过工具临时配置的连接只存在于当前进程。工具参数可能由客户端记录。
+独立注册的连接参数保存在本机 Codex `config.toml`，包含明文密码，不要分享。市场插件的浏览器设置不会把密码传给 Codex，也不会改写 `config.toml`；成功后保存到 `codex-connections.json` 并在重启时自动加载。普通 MCP 模式仍有 `nebula_configure_connection`；未设置 `NEBULA_CONNECTIONS_FILE` 时，其配置只存在于当前进程，传入的工具参数可能被客户端记录。
 
 ## 单进程内的多环境配置
 
-marketplace 插件推荐直接用 `nebula_configure_connection(name=...)` 保存多套连接，再 `nebula_switch_environment` 切换；这些连接会持久化。下面基于 `NEBULA_ENVIRONMENTS` 的 JSON 配置仍支持安装器或原生 MCP 条目，二者择一配置。
+市场插件的设置页只编辑当前连接，不新建额外命名环境；旧版已保存的环境仍可列出、切换，并在切换后编辑。需要创建新的多环境配置时，可使用下面的 `NEBULA_ENVIRONMENTS` 或独立的原生 MCP 条目。
 
 原生设置只显示已保存的环境变量，不会根据 MCP 工具自动生成配置字段。已有单连接安装若看不到下面两个字段，需要在同一编辑器中添加。
 

@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 
+import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 
@@ -46,6 +47,29 @@ async def test_production_stdio_subprocess_initializes_without_configuration() -
     assert len(tools.tools) == 12
     assert result.is_error is True
     assert result.structured_content["error"]["code"] == "CONFIGURATION_REQUIRED"
+
+
+@pytest.mark.anyio
+async def test_marketplace_stdio_exposes_browser_setup_and_packages_assets(tmp_path: Path) -> None:
+    wheel_python = os.getenv("NEBULA_WHEEL_PYTHON")
+    env = {"NEBULA_CONNECTIONS_FILE": str(tmp_path / "connections.json")}
+    if not wheel_python:
+        env["PYTHONPATH"] = str(ROOT / "src")
+    python = wheel_python or sys.executable
+    flags = ["-I"] if wheel_python else []
+    with anyio.fail_after(30):
+        await anyio.run_process(
+            [python, *flags, "-c", "from nebula_mcp.browser_setup import _load_assets; _load_assets()"],
+            env={**os.environ, **env}, cwd=tmp_path, check=True,
+        )
+    params = StdioServerParameters(
+        command=python, args=[*flags, "-m", "nebula_mcp", "--codex-marketplace"],
+        cwd=tmp_path, env=env,
+    )
+    async with Client(params) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+        assert "nebula_open_connection_settings" in names
+        assert "nebula_configure_connection" not in names
 
 
 @pytest.mark.anyio

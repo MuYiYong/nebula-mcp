@@ -110,6 +110,8 @@ jobs:
         run: python -m pytest tests/unit/test_installer.py tests/integration/test_installer_cli.py -q
       - name: Run rendered installer smoke
         run: python -m pytest tests/unit/test_release_assets.py tests/unit/test_calendar_release.py -q
+      - name: Test local setup and connection persistence
+        run: python -m pytest tests/unit/test_browser_setup.py tests/protocol/test_persistent_config.py -q
 
   publish:
     needs: [validate, installer-compatibility]

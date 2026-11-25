@@ -1,8 +1,7 @@
 """Persist named Codex connections in the managed runtime data directory.
 
-The Codex plugin has no native settings page. Its MCP tools configure the
-server over stdio, and this module stores the result so the next MCP process
-can load it without asking the user to run an installer or edit config.toml.
+The Codex marketplace plugin tests settings received from its local browser
+page and stores them here so later MCP processes can load them automatically.
 
 The file contains passwords in plain text. It is therefore written atomically
 with mode 0600 on POSIX, and reads reject symlinks, non-regular files, and
@@ -15,6 +14,7 @@ import json
 import os
 import re
 import stat
+import sys
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -109,13 +109,13 @@ def _parse_record(value: object) -> Settings:
         raise _failure(
             "INVALID_CONNECTIONS_FILE",
             "连接配置文件格式无效；每个连接都必须是字符串键值对象。",
-            "Configure the connection again with nebula_configure_connection.",
+            "Check the local connection settings file.",
         )
     if any(key not in _RECORD_FIELDS for key in value):
         raise _failure(
             "INVALID_CONNECTIONS_FILE",
             "连接配置包含未知字段。",
-            "Configure the connection again with nebula_configure_connection.",
+            "Check the local connection settings file.",
         )
     try:
         return Settings.from_env(value)
@@ -123,7 +123,7 @@ def _parse_record(value: object) -> Settings:
         raise _failure(
             "INVALID_CONNECTIONS_FILE",
             "连接配置中的地址、用户名、密码或超时无效。",
-            "Configure the connection again with nebula_configure_connection.",
+            "Check the local connection settings file.",
         ) from None
 
 
@@ -211,6 +211,41 @@ def load(path: Path) -> tuple[dict[str, Settings], str | None]:
     elif len(connections) == 1:
         active = next(iter(connections))
     return connections, active
+
+
+def save_if_current(
+    path: Path,
+    snapshot: tuple[dict[str, Settings], str | None],
+    connections: Mapping[str, Settings],
+    active: str,
+) -> None:
+    """Compare and save atomically across concurrent marketplace MCP processes."""
+    _validate_path(path)
+    # Keep the lock file: replacing/unlinking it would permit locking two different inodes.
+    lock_path = path.with_name(path.name + ".lock")
+    conflict = "本机连接设置已在别处更改或正在保存。请在 Codex 中重新打开设置页后再试。"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        with os.fdopen(os.open(lock_path, flags, 0o600), "r+b") as lock:
+            if not stat.S_ISREG(os.fstat(lock.fileno()).st_mode):
+                raise OSError("Lock must be a regular file")
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise _failure("CONNECTION_SETTINGS_CHANGED", conflict) from None
+            if load(path) != snapshot:
+                raise _failure("CONNECTION_SETTINGS_CHANGED", conflict)
+            save(path, connections, active)
+    except OSError:
+        raise _failure("CONNECTION_SAVE_FAILED", "无法保存本机连接设置。") from None
 
 
 def save(path: Path, connections: Mapping[str, Settings], active: str | None) -> None:
